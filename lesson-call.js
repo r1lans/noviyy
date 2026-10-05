@@ -303,9 +303,13 @@
         } else if (peopleOpen) { side.innerHTML = `<div class="cs-head"><strong>${esc(X('Участники'))}</strong><button type="button" class="cs-x" aria-label="${esc(X('Закрыть'))}">${ic('x')}</button></div><div class="cs-list" id="cs-people"></div>`; renderPeople(); }
         const x = side.querySelector('.cs-x'); if (x) x.onclick = () => { chatOpen = peopleOpen = false; renderSide(); renderBar(); };
     }
+    // a board coordinate in a message ("доска:D5") becomes a button that shows the spot on the whiteboard
+    const linkCoords = (h) => h.replace(/(?:доска|board|doska)[:\s]\s?([A-Pa-p](?:10|[1-9]))(?![0-9A-Za-z])/gi, (m, c) => `<button type="button" class="cm-coord" data-c="${c.toUpperCase()}">доска:${c.toUpperCase()}</button>`);
+    window.addEventListener('starth-board-say', (e) => { try { if (roomRef && me && e.detail && e.detail.text) roomRef.collection('chat').add({ uid: me.uid, name: myName, text: String(e.detail.text).slice(0, 500), ts: Date.now() }).catch(() => {}); } catch (er) {} });
+    document.addEventListener('click', (e) => { const b = e.target.closest && e.target.closest('.cm-coord'); if (b && window.LessonBoard) window.LessonBoard.show(b.dataset.c); });
     function renderChat() {
         const l = $('#cs-list'); if (!l) return;
-        l.innerHTML = chatMsgs.length ? chatMsgs.map((m) => `<div class="cm ${m.uid === me.uid ? 'mine' : ''}"><b>${esc(m.name)}</b><span>${esc(m.text)}</span></div>`).join('') : `<div class="cs-empty">${esc(X('Сообщений пока нет.'))}</div>`;
+        l.innerHTML = chatMsgs.length ? chatMsgs.map((m) => `<div class="cm ${m.uid === me.uid ? 'mine' : ''}"><b>${esc(m.name)}</b><span>${linkCoords(esc(m.text))}</span></div>`).join('') : `<div class="cs-empty">${esc(X('Сообщений пока нет.'))}</div>`;
         l.scrollTop = l.scrollHeight;
     }
     function renderPeople() {
