@@ -569,6 +569,9 @@ document.addEventListener('DOMContentLoaded', () => {
             if (user && !window.StarthPresence && !document.querySelector('script[data-presence]')) {
                 const sp = document.createElement('script'); sp.src = 'presence.js'; sp.dataset.presence = '1'; document.head.appendChild(sp);
             }
+            if (user && !window.__tgNudge && !document.querySelector('script[data-tg-nudge]')) {
+                const sn = document.createElement('script'); sn.src = 'tg-nudge.js'; sn.dataset.tgNudge = '1'; document.head.appendChild(sn);
+            }
             if (user && !window.StarthNotify && !document.querySelector('script[data-msg-notify]')) {
                 const sc = document.createElement('script'); sc.src = 'msg-notify.js'; sc.dataset.msgNotify = '1'; document.head.appendChild(sc);
             }

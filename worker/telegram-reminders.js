@@ -17,7 +17,7 @@
  *   SITE_URL                  (Text, необязательно) — по умолчанию https://thestarth.com
  */
 const TZ_OFFSET_MIN = 300; // Asia/Tashkent = UTC+5, без перехода на летнее время
-const OFFSETS = [60, 30, 5]; // за сколько минут напоминать
+const OFFSETS = [60, 30, 5, 0]; // за сколько минут напоминать (0 = урок начался: шлём ссылку на вход)
 const WINDOW = 3; // если cron пропустил минуту, напоминание уйдёт позже, но не позднее чем через WINDOW минут
 const pad = (n) => String(n).padStart(2, '0');
 
@@ -46,13 +46,13 @@ export function todaysLessons(now, schedDocs, groupDocs) {
     for (const s of schedDocs || []) {
         if (s.date !== now.date || s.status === 'missed' || s.status === 'cancelled') continue;
         const m = parseHm(s.time); if (m == null) continue;
-        out.push({ key: 's:' + s.id, minutes: m, title: s.subject || '', room: s.room || '', nicks: s.studentNickname ? [String(s.studentNickname).toLowerCase()] : [], uids: s.teacherUid ? [s.teacherUid] : [] });
+        out.push({ key: 's:' + s.id, minutes: m, title: s.subject || '', room: s.room || '', groupId: '', nicks: s.studentNickname ? [String(s.studentNickname).toLowerCase()] : [], uids: [], teachers: s.teacherUid ? [s.teacherUid] : [] });
     }
     for (const g of groupDocs || []) {
         if (groupDays(g).indexOf(now.dow) === -1) continue;
         const m = parseHm(g.time || g.scheduleText); if (m == null) continue;
-        const uids = (g.memberUids || []).slice(); if (g.teacherUid) uids.push(g.teacherUid);
-        out.push({ key: 'g:' + g.id, minutes: m, title: g.name || g.subject || '', room: g.room || '', nicks: [], uids });
+        const uids = (g.memberUids || []).filter((u) => u !== g.teacherUid);
+        out.push({ key: 'g:' + g.id, minutes: m, title: g.name || g.subject || '', room: g.room || '', groupId: g.id, nicks: [], uids, teachers: g.teacherUid ? [g.teacherUid] : [] });
     }
     return out;
 }
@@ -68,12 +68,32 @@ export function dueNow(now, lessons) {
 }
 
 const TEXTS = {
-    ru: (off, hm, t) => `⏰ Урок через ${off === 60 ? 'час' : off + ' минут'}${t ? ': ' + t : ''}\nНачало в ${hm} (Ташкент).`,
-    uz: (off, hm, t) => `⏰ Dars ${off === 60 ? '1 soatdan' : off + ' daqiqadan'} so‘ng boshlanadi${t ? ': ' + t : ''}\nBoshlanishi ${hm} (Toshkent).`,
-    en: (off, hm, t) => `⏰ Your lesson starts in ${off === 60 ? '1 hour' : off + ' minutes'}${t ? ': ' + t : ''}\nStart: ${hm} (Tashkent time).`,
+    ru: {
+        student: (off, hm, t) => (off === 0 ? `🔔 Урок начинается сейчас${t ? ': ' + t : ''}` : `⏰ Урок через ${off === 60 ? 'час' : off + ' минут'}${t ? ': ' + t : ''}\nНачало в ${hm} (Ташкент).`),
+        teacher: (off, hm, t) => (off === 0 ? `🔔 У вас урок начинается сейчас${t ? ': ' + t : ''}` : `⏰ У вас урок через ${off === 60 ? 'час' : off + ' минут'}${t ? ': ' + t : ''}\nНачало в ${hm} (Ташкент).`),
+        join: 'Войти на урок:',
+    },
+    uz: {
+        student: (off, hm, t) => (off === 0 ? `🔔 Dars hozir boshlanadi${t ? ': ' + t : ''}` : `⏰ Dars ${off === 60 ? '1 soatdan' : off + ' daqiqadan'} so‘ng boshlanadi${t ? ': ' + t : ''}\nBoshlanishi ${hm} (Toshkent).`),
+        teacher: (off, hm, t) => (off === 0 ? `🔔 Darsingiz hozir boshlanadi${t ? ': ' + t : ''}` : `⏰ Darsingiz ${off === 60 ? '1 soatdan' : off + ' daqiqadan'} so‘ng boshlanadi${t ? ': ' + t : ''}\nBoshlanishi ${hm} (Toshkent).`),
+        join: 'Darsga kirish:',
+    },
+    en: {
+        student: (off, hm, t) => (off === 0 ? `🔔 Your lesson is starting now${t ? ': ' + t : ''}` : `⏰ Your lesson starts in ${off === 60 ? '1 hour' : off + ' minutes'}${t ? ': ' + t : ''}\nStart: ${hm} (Tashkent time).`),
+        teacher: (off, hm, t) => (off === 0 ? `🔔 You have a lesson starting now${t ? ': ' + t : ''}` : `⏰ You have a lesson in ${off === 60 ? '1 hour' : off + ' minutes'}${t ? ': ' + t : ''}\nStart: ${hm} (Tashkent time).`),
+        join: 'Join the lesson:',
+    },
 };
-export function messageText(lang, offset, minutes, title) {
-    const f = TEXTS[lang] || TEXTS.ru; return f(offset, pad(Math.floor(minutes / 60)) + ':' + pad(minutes % 60), title);
+/** Текст напоминания. role: 'student' | 'teacher'. На 5-й минуте и в момент начала добавляется ссылка на вход в урок. */
+export function messageText(lang, offset, minutes, title, role, link) {
+    const L = TEXTS[lang] || TEXTS.ru; const hm = pad(Math.floor(minutes / 60)) + ':' + pad(minutes % 60);
+    const base = (L[role === 'teacher' ? 'teacher' : 'student'])(offset, hm, title);
+    return offset <= 5 && link ? base + '\n\n' + L.join + ' ' + link : base;
+}
+/** Ссылка на вход в урок (учитель из группы попадает ещё и на отметку посещаемости) */
+export function joinLink(site, lesson, role) {
+    if (!lesson.room) return site + '/dashboard.html';
+    return site + '/video-lesson.html?room=' + encodeURIComponent(lesson.room) + (role === 'teacher' && lesson.groupId ? '&group=' + encodeURIComponent(lesson.groupId) : '');
 }
 
 // ───────────────────────── Firestore REST ─────────────────────────
@@ -176,6 +196,12 @@ export function formatLessons(lang, list, today) {
     return lines.join('\n');
 }
 
+async function patchUser(env, uid, fields) {
+    const pid = env.FIREBASE_PROJECT_ID || 'thestarth-b7620'; const mask = Object.keys(fields).map((k) => 'updateMask.fieldPaths=' + k).join('&');
+    const body = { fields: {} }; for (const k in fields) body.fields[k] = typeof fields[k] === 'boolean' ? { booleanValue: fields[k] } : { stringValue: String(fields[k]) };
+    const r = await fetch(`https://firestore.googleapis.com/v1/projects/${pid}/databases/(default)/documents/users/${uid}?${mask}`, { method: 'PATCH', headers: { Authorization: 'Bearer ' + await accessToken(env), 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    return r.ok;
+}
 async function usersByTelegram(env, uname) { return queryDocs(env, { from: [{ collectionId: 'users' }], where: { fieldFilter: { field: { fieldPath: 'telegram' }, op: 'EQUAL', value: { stringValue: uname } } }, limit: 1 }); }
 /** Расписание конкретного человека: schedule (по нику ученика / uid учителя) + группы (участник или учитель) */
 async function myLessons(env, u) {
@@ -206,9 +232,13 @@ async function handleUpdate(env, upd) {
         await env.TG.put('u:' + uname, String(m.chat.id));
         if (!(await env.TG.get('lang:' + uname))) await env.TG.put('lang:' + uname, lang);
         const found = (await usersByTelegram(env, uname))[0];
+        if (found) { try { await patchUser(env, found.id, { tgLinked: true }); } catch (e) { console.warn('tgLinked', e); } }
         return send(env, m.chat.id, found ? t.ok(uname) : t.notlinked.replace('{u}', uname));
     }
-    if (cmd === '/stop') { if (uname) await env.TG.delete('u:' + uname); return send(env, m.chat.id, t.stop); }
+    if (cmd === '/stop') {
+        if (uname) { await env.TG.delete('u:' + uname); try { const f = (await usersByTelegram(env, uname))[0]; if (f) await patchUser(env, f.id, { tgLinked: false }); } catch (e) {} }
+        return send(env, m.chat.id, t.stop);
+    }
     if (cmd === '/help') return send(env, m.chat.id, t.help);
     if (cmd === '/site') return send(env, m.chat.id, t.site, { reply_markup: { inline_keyboard: [[{ text: 'thestarth.com', url: env.SITE_URL || 'https://thestarth.com' }, { text: 'Кабинет', url: (env.SITE_URL || 'https://thestarth.com') + '/dashboard.html' }]] } });
     if (cmd === '/lang') return send(env, m.chat.id, t.lang_pick, { reply_markup: { inline_keyboard: [[{ text: 'Русский', callback_data: 'lang:ru' }, { text: 'O‘zbekcha', callback_data: 'lang:uz' }, { text: 'English', callback_data: 'lang:en' }]] } });
@@ -246,8 +276,9 @@ export async function runReminders(env, nowMs) {
     let sent = 0; const userCache = {};
     const urls = {};
     for (const d of due) {
-        const people = []; // { uid?, nick? }
-        d.lesson.nicks.forEach((n) => people.push({ nick: n })); d.lesson.uids.forEach((u) => people.push({ uid: u }));
+        const people = []; // { uid?, nick?, role }
+        d.lesson.nicks.forEach((n) => people.push({ nick: n, role: 'student' })); d.lesson.uids.forEach((u) => people.push({ uid: u, role: 'student' }));
+        (d.lesson.teachers || []).forEach((u) => people.push({ uid: u, role: 'teacher' }));
         for (const p of people) {
             const pk = p.uid || ('n:' + p.nick); const dk = d.dedupe + ':' + pk;
             if (await env.TG.get('sent:' + dk)) continue;
@@ -255,8 +286,11 @@ export async function runReminders(env, nowMs) {
             if (u === undefined) { u = p.uid ? (await getUsers(env, [p.uid]))[0] : (await usersByNick(env, p.nick))[0]; userCache[pk] = u || null; }
             if (!u || !u.telegram) continue;
             const chatId = await env.TG.get('u:' + String(u.telegram).replace(/^@/, '').toLowerCase()); if (!chatId) continue;
-            const body = messageText((await env.TG.get('lang:' + String(u.telegram).replace(/^@/, '').toLowerCase())) || u.lang, d.offset, d.lesson.minutes, d.lesson.title);
-            const res = await tg(env, 'sendMessage', { chat_id: chatId, text: body + '\n' + (env.SITE_URL || 'https://thestarth.com') + '/dashboard.html' });
+            const site = env.SITE_URL || 'https://thestarth.com'; const lang = (await env.TG.get('lang:' + String(u.telegram).replace(/^@/, '').toLowerCase())) || u.lang;
+            const link = joinLink(site, d.lesson, p.role);
+            const body = messageText(lang, d.offset, d.lesson.minutes, d.lesson.title, p.role, d.offset <= 5 ? link : '');
+            const extra = d.offset <= 5 ? { reply_markup: { inline_keyboard: [[{ text: (TEXTS[lang] || TEXTS.ru).join.replace(/:$/, ''), url: link }]] }, disable_web_page_preview: true } : {};
+            const res = await tg(env, 'sendMessage', Object.assign({ chat_id: chatId, text: body }, extra));
             if (res && res.ok) { sent++; await env.TG.put('sent:' + dk, '1', { expirationTtl: 86400 }); }
             else if (res && (res.error_code === 403 || res.error_code === 400)) await env.TG.put('sent:' + dk, '1', { expirationTtl: 86400 }); // человек заблокировал бота — не долбим
         }
