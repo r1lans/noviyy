@@ -2564,7 +2564,7 @@ html.vbox-lock,html.vbox-lock body{overflow:hidden}
 .pe-cur{margin:.2rem 0 .8rem;word-break:break-all}
 
 /* ── «Назад» button on inner pages ── */
-.back-btn{position:fixed;left:12px;top:72px;z-index:900;display:inline-flex;align-items:center;gap:.35rem;padding:.38rem .85rem;border-radius:999px;background:var(--paper,#fff);color:var(--ink,#111);border:1px solid var(--rule,rgba(128,128,128,.35));font-size:.85rem;font-weight:600;text-decoration:none;box-shadow:0 2px 8px rgba(0,0,0,.08);opacity:.92}
+.back-btn{position:absolute;left:12px;top:72px;z-index:900;display:inline-flex;align-items:center;gap:.35rem;padding:.38rem .85rem;border-radius:999px;background:var(--paper,#fff);color:var(--ink,#111);border:1px solid var(--rule,rgba(128,128,128,.35));font-size:.85rem;font-weight:600;text-decoration:none;box-shadow:0 2px 8px rgba(0,0,0,.08);opacity:.92}
 .back-btn:hover{border-color:var(--accent);color:var(--accent);opacity:1}
 @media(max-width:560px){.back-btn{padding:.34rem .7rem;font-size:.8rem}}
 

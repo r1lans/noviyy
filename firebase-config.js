@@ -24,4 +24,4 @@ if (FIREBASE_READY) {
 }
 
 // Имя Telegram-бота для напоминаний об уроках (без токена!). Например: 'TheStarthBot'. Токен хранится ТОЛЬКО в секретах Cloudflare Worker.
-window.STARTH_TG_BOT = '@TheStarth_bot';
+window.STARTH_TG_BOT = 'TheStarth_bot';
