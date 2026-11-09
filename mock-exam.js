@@ -105,9 +105,9 @@
     }
 
     // ====================== starting ======================
-    function start() {
+    async function start() {
         const t = tests.find((x) => x.id === sel.id); if (!t) return;
-        if (run && !confirm(T('Текущий тест будет закрыт без сохранения. Продолжить?'))) return;
+        if (run && !await StarthUI.confirm(T('Текущий тест будет закрыт без сохранения. Продолжить?'))) return;
         stopRun(); seq = null; $('mxResult').hidden = true;
         if (t.skill === 'full') return startFull(t);
         const n = t.skill === 'writing' ? (t.tasks || []).length : (t.parts || []).length;
@@ -198,7 +198,7 @@
         el.querySelectorAll('.mx-pn').forEach((b) => { b.onclick = () => { const q = $('qn' + b.dataset.n); if (!q) return; const part = q.closest('.mx-part'); if (part && part.hidden) showPart(+part.dataset.pi); q.scrollIntoView({ behavior: 'smooth', block: 'center' }); }; });
         el.oninput = onAnswer; el.onchange = onAnswer;
         $('mxFinish').onclick = () => finish(false);
-        const c = $('mxCancel'); if (c) c.onclick = () => { if (confirm(T('Закрыть тест без сохранения результата?'))) { stopRun(); el.hidden = true; el.innerHTML = ''; } };
+        const c = $('mxCancel'); if (c) c.onclick = async () => { if (await StarthUI.confirm(T('Закрыть тест без сохранения результата?'))) { stopRun(); el.hidden = true; el.innerHTML = ''; } };
     }
     function showPart(pi) {
         run.cur = pi;
@@ -256,7 +256,7 @@
         run.idxs.forEach(count);
         el.oninput = (e) => { const ta = e.target; if (ta.tagName !== 'TEXTAREA' || !run) return; const i = +ta.dataset.i; run.texts[i] = ta.value; store.set(draftKey(t, i), ta.value); count(i); };
         $('mxFinish').onclick = () => finish(false);
-        const c = $('mxCancel'); if (c) c.onclick = () => { if (confirm(T('Закрыть тест? Написанный текст сохранится как черновик на этом устройстве.'))) { stopRun(); el.hidden = true; el.innerHTML = ''; } };
+        const c = $('mxCancel'); if (c) c.onclick = async () => { if (await StarthUI.confirm(T('Закрыть тест? Написанный текст сохранится как черновик на этом устройстве.'))) { stopRun(); el.hidden = true; el.innerHTML = ''; } };
     }
 
     // ====================== finishing ======================
@@ -264,7 +264,7 @@
         if (!run) return;
         if (run.kind === 'writing') return finishWriting(auto);
         let un = 0; run.idxs.forEach((pi) => run.t.parts[pi].groups.forEach((g) => g.items.forEach((it) => { if (!answered(it)) un++; })));
-        if (!auto && un && !confirm(T('Есть вопросы без ответа:') + ' ' + un + '. ' + T('Завершить тест?'))) return;
+        if (!auto && un && !await StarthUI.confirm(T('Есть вопросы без ответа:') + ' ' + un + '. ' + T('Завершить тест?'))) return;
         const secs = Math.round((Date.now() - run.startedAt) / 1000), r = run, t = r.t;
         stopRun();
         let correct = 0, total = 0; const perPart = [], review = [];
@@ -279,7 +279,7 @@
         const r = run, t = r.t, filled = r.idxs.filter((i) => String(r.texts[i] || '').trim());
         if (!filled.length) { if (!auto) alert(T('Напишите хотя бы одно задание.')); else { stopRun(); $('mxRun').hidden = true; } return; }
         const low = filled.filter((i) => E.wordCount(r.texts[i]) < (t.tasks[i].minWords || 0));
-        if (!auto && low.length && !confirm(T('В некоторых заданиях меньше минимума слов: оценка будет снижена. Отправить?'))) return;
+        if (!auto && low.length && !await StarthUI.confirm(T('В некоторых заданиях меньше минимума слов: оценка будет снижена. Отправить?'))) return;
         const secs = Math.round((Date.now() - r.startedAt) / 1000);
         stopRun(); $('mxRun').hidden = true; $('mxRun').innerHTML = '';
         const sent = []; let failed = false;
@@ -313,7 +313,7 @@
     function renderFinal() {
         const el = $('mxResult'); el.hidden = false;
         const L = seq.summary.find((x) => x.t.skill === 'listening'), R = seq.summary.find((x) => x.t.skill === 'reading'), W = seq.summary.find((x) => x.kind === 'writing');
-        const card = (name, x) => x ? `<div class="mx-sum"><small>${name}</small><b>${x.kind === 'writing' ? (x.failed ? '—' : '✓') : bandText(x.b.band, x.b.estimated)}</b><small>${x.kind === 'writing' ? (x.failed ? 'не отправлено' : 'на проверке у учителя') : x.correct + ' / ' + x.total}</small></div>` : '';
+        const card = (name, x) => x ? `<div class="mx-sum"><small>${name}</small><b>${x.kind === 'writing' ? (x.failed ? '—' : (window.Icons ? Icons.svg('check') : '+')) : bandText(x.b.band, x.b.estimated)}</b><small>${x.kind === 'writing' ? (x.failed ? 'не отправлено' : 'на проверке у учителя') : x.correct + ' / ' + x.total}</small></div>` : '';
         const lr = E.overallBand([L && L.b.band, R && R.b.band].filter((v) => v != null));
         el.innerHTML = `<div class="mx-res-top"><div class="mx-score"><b>${esc(seq.title)}</b><small>Полный мок завершён</small></div>${lr != null ? `<div class="mx-band"><small>Среднее Listening и Reading</small><b>${lr}</b></div>` : ''}</div>
             <div class="mx-sumgrid">${card('Listening', L)}${card('Reading', R)}${card('Writing', W)}</div>
@@ -344,7 +344,7 @@
             <h3 class="mx-rev-title">Разбор ответов</h3>
             <div class="mx-rev">${review.map((x) => {
                 const ok = x.res.ok, part = !ok && x.res.got > 0;
-                return `<div class="mx-rv ${ok ? 'ok' : part ? 'part' : 'bad'}"><span class="mx-rvn">${qNum(x.it)}</span><div><div class="mx-rvq">${esc(x.it.text || '').replace(/_{3,}/g, '____')}</div><div class="mx-rva">Ваш ответ: <b>${esc(fmt(x.given))}</b>${ok ? '' : ` · Верно: <b>${esc(x.res.expected || '—')}</b>`}</div></div><span class="mx-rvm">${ok ? '✓' : part ? '½' : '✕'}</span></div>`;
+                return `<div class="mx-rv ${ok ? 'ok' : part ? 'part' : 'bad'}"><span class="mx-rvn">${qNum(x.it)}</span><div><div class="mx-rvq">${esc(x.it.text || '').replace(/_{3,}/g, '____')}</div><div class="mx-rva">Ваш ответ: <b>${esc(fmt(x.given))}</b>${ok ? '' : ` · Верно: <b>${esc(x.res.expected || '—')}</b>`}</div></div><span class="mx-rvm">${ok ? (window.Icons ? Icons.svg('check') : '+') : part ? '½' : (window.Icons ? Icons.svg('x') : '-')}</span></div>`;
             }).join('')}</div>
             <div class="mx-foot"><button type="button" class="btn-primary" id="mxAgain">Пройти ещё раз</button><button type="button" class="btn-outline" id="mxOther">Выбрать другой тест</button></div>`;
         $('mxAgain').onclick = start;

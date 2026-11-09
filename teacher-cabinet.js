@@ -15,8 +15,8 @@
     const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     const X = (m) => (window.X ? window.X(m) : m);
     const alert = (m) => window.alert(X(m));
-    const confirm = (m) => window.confirm(X(m));
-    const prompt = (m, d) => window.prompt(X(m), d);
+    const confirm = (m) => StarthUI.confirm(X(m));
+    const prompt = (m, d) => StarthUI.prompt(X(m), d);
     const ic = (n) => (window.Icons ? window.Icons.svg(n) : '');
     const pad = (n) => String(n).padStart(2, '0');
     const todayStr = () => { const d = new Date(); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); };
@@ -75,6 +75,7 @@
     let cur = null;               // group being viewed
     let gradesCache = [];         // grades of the current group
     let attCache = [];            // attendance docs of the current group
+    let absCache = [];            // «не смогу прийти» notices for the current group
     let tab = 'students';
     let attDate = todayStr();
     let attMarks = {};
@@ -94,19 +95,25 @@
     }
 
     // ── data ────────────────────────────────────────────────────────────────
+    // Own groups + groups where the admin added this teacher as a second teacher (view only).
     async function loadGroups() {
-        const snap = await col('groups').where('teacherUid', '==', user.uid).get();
+        const [snap, co] = await Promise.all([
+            col('groups').where('teacherUid', '==', user.uid).get(),
+            col('groups').where('coTeacherUids', 'array-contains', user.uid).get().catch(() => null)
+        ]);
         groups = [];
         snap.forEach((d) => groups.push(Object.assign({ id: d.id, members: [], memberUids: [] }, d.data())));
+        if (co) co.forEach((d) => { if (!groups.some((g) => g.id === d.id)) groups.push(Object.assign({ id: d.id, members: [], memberUids: [], _co: true }, d.data())); });
         groups.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ru'));
     }
+    // Whole history of the group (also what a previous teacher entered); falls back to own records if rules are old.
     async function loadGroupData(g) {
-        const [gs, as] = await Promise.all([
-            col('grades').where('teacherUid', '==', user.uid).where('groupId', '==', g.id).get(),
-            col('attendance').where('teacherUid', '==', user.uid).where('groupId', '==', g.id).get()
-        ]);
+        const byGroup = (c) => col(c).where('groupId', '==', g.id).get().catch(() => col(c).where('teacherUid', '==', user.uid).where('groupId', '==', g.id).get());
+        const [gs, as] = await Promise.all([byGroup('grades'), byGroup('attendance')]);
         gradesCache = []; gs.forEach((d) => gradesCache.push(Object.assign({ id: d.id }, d.data())));
         attCache = []; as.forEach((d) => attCache.push(Object.assign({ id: d.id }, d.data())));
+        absCache = [];
+        try { const ab = await col('absences').where('teacherUid', '==', user.uid).get(); ab.forEach((d) => { const a = d.data(); if (a.groupId === g.id) absCache.push(a); }); } catch (e) {}
     }
 
     function avgFor(nick) {
@@ -156,12 +163,12 @@
                 const card = document.createElement('div');
                 card.className = 'tc-group-card' + (g.archived ? ' is-archived' : '');
                 card.innerHTML = `
-                    <h3>${esc(g.name)}${g.archived ? ' <span class="tc-chip">Архив</span>' : ''}</h3>
+                    <h3>${esc(g.name)}${g.archived ? ' <span class="tc-chip">Архив</span>' : ''}${g._co ? ' <span class="tc-chip">Второй учитель</span>' : ''}</h3>
                     <div class="tc-meta">${esc(g.subject || '')}${g.scheduleText ? ' · ' + esc(g.scheduleText) : ''}</div>
                     <div><span class="tc-count">${ic('users')} ${n} ${plural(n, 'ученик', 'ученика', 'учеников')}</span></div>
                     <div class="tc-actions">
                         <button class="tc-btn primary" data-open="${esc(g.id)}" type="button">Открыть</button>
-                        <a class="tc-btn" href="video-lesson.html?room=${encodeURIComponent(g.room)}&group=${encodeURIComponent(g.id)}">Войти на урок</a>
+                        <a class="tc-btn" href="video-lesson?room=${encodeURIComponent(g.room)}&group=${encodeURIComponent(g.id)}">Войти на урок</a>
                     </div>`;
                 list.appendChild(card);
             });
@@ -198,6 +205,7 @@
                 scheduleText: spNew.text(), days: spNew.days(), time: spNew.time(),
                 teacherUid: user.uid,
                 teacherName,
+                curatorUid: profile.curatorUid || '',      // the partner curator this teacher works under (rules check it)
                 room: 'TheStarth-g-' + ref.id.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 14),
                 members: [], memberUids: [],
                 createdAt: new Date().toISOString()
@@ -212,13 +220,13 @@
         }
     }
 
-    async function openGroup(id) {
+    async function openGroup(id, openTab, date) {
         cur = groups.find((g) => g.id === id);
         if (!cur) return renderList();
         root.innerHTML = '<div class="tc-empty">Загрузка…</div>';
         try { await loadGroupData(cur); } catch (err) { console.warn(err); gradesCache = []; attCache = []; }
-        tab = 'students';
-        attDate = todayStr();
+        tab = openTab || 'students';
+        attDate = date || todayStr();
         loadAttForDate();
         renderGroup();
     }
@@ -232,14 +240,16 @@
                 <div>
                     <h3>${esc(g.name)}</h3>
                     <div class="tc-meta">${esc(g.subject || '')}${g.scheduleText ? ' · ' + esc(g.scheduleText) : ''} · ${n} ${plural(n, 'ученик', 'ученика', 'учеников')}</div>
+                    ${g._co ? `<div class="tc-meta">Основной учитель: <b>${esc(g.teacherName || '—')}</b></div>` : ((g.coTeachers || []).length ? `<div class="tc-meta">Второй учитель: ${(g.coTeachers || []).map((c) => esc(c.name || '')).join(', ')}</div>` : '')}
                 </div>
                 <div class="tc-actions" style="margin:0;padding:0;">
-                    <a class="tc-btn primary" href="video-lesson.html?room=${encodeURIComponent(g.room)}&group=${encodeURIComponent(g.id)}">Войти на урок группы</a>
-                    <button class="tc-btn" type="button" id="tcEdit">Изменить</button>
+                    <a class="tc-btn primary" href="video-lesson?room=${encodeURIComponent(g.room)}&group=${encodeURIComponent(g.id)}">Войти на урок группы</a>
+                    ${g._co ? '' : `<button class="tc-btn" type="button" id="tcEdit">Изменить</button>
                     <button class="tc-btn" type="button" id="tcArch">${g.archived ? 'Вернуть из архива' : 'В архив'}</button>
-                    <button class="tc-btn danger" type="button" id="tcDel">Удалить</button>
+                    <button class="tc-btn danger" type="button" id="tcDel">Удалить</button>`}
                 </div>
             </div>
+            ${g._co ? '<div class="tc-msg" style="margin:0 0 .8rem;">Вы — второй учитель этой группы: видите учеников, посещаемость и оценки. Отмечать посещаемость и ставить оценки может основной учитель.</div>' : ''}
             <div class="tc-tabs" role="tablist">
                 <button class="tc-tab ${tab === 'students' ? 'active' : ''}" data-t="students" type="button">Ученики</button>
                 <button class="tc-tab ${tab === 'attendance' ? 'active' : ''}" data-t="attendance" type="button">Посещаемость</button>
@@ -247,9 +257,11 @@
             </div>
             <div id="tcBody"></div>`;
         document.getElementById('tcBack').onclick = renderList;
-        document.getElementById('tcEdit').onclick = editGroup;
-        document.getElementById('tcDel').onclick = deleteGroup;
-        document.getElementById('tcArch').onclick = toggleArchive;
+        if (!g._co) {
+            document.getElementById('tcEdit').onclick = editGroup;
+            document.getElementById('tcDel').onclick = deleteGroup;
+            document.getElementById('tcArch').onclick = toggleArchive;
+        }
         root.querySelectorAll('.tc-tab').forEach((b) => b.addEventListener('click', () => { tab = b.dataset.t; renderGroup(); }));
         if (tab === 'students') renderStudents();
         else if (tab === 'attendance') renderAttendance();
@@ -281,7 +293,7 @@
     }
 
     async function deleteGroup() {
-        if (!confirm('Удалить группу «' + cur.name + '» вместе с оценками и посещаемостью? Это нельзя отменить.')) return;
+        if (!await confirm('Удалить группу «' + cur.name + '» вместе с оценками и посещаемостью? Это нельзя отменить.')) return;
         try {
             const batch = db.batch();
             gradesCache.forEach((x) => batch.delete(col('grades').doc(x.id)));
@@ -309,7 +321,8 @@
     function renderStudents() {
         const body = document.getElementById('tcBody');
         const members = cur.members || [];
-        body.innerHTML = `
+        const ro = !!cur._co;
+        body.innerHTML = `${ro ? '' : `
             <form class="tc-form" id="tcAddForm">
                 <label>Добавить ученика по никнейму</label>
                 <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
@@ -317,15 +330,15 @@
                     <button class="tc-btn primary" type="submit">Добавить</button>
                 </div>
                 <div class="tc-msg" id="tcAddMsg">Ученик должен быть зарегистрирован на сайте — никнейм он видит в своём кабинете.</div>
-            </form>
+            </form>`}
             <div class="tc-actions" style="margin:0 0 .6rem;">
-                <button class="tc-btn" type="button" id="tcCsvAtt">Скачать посещаемость (CSV)</button>
-                <button class="tc-btn" type="button" id="tcCsvGr">Скачать оценки (CSV)</button>
+                <button class="tc-btn" type="button" id="tcCsvAtt">Скачать посещаемость (Excel)</button>
+                <button class="tc-btn" type="button" id="tcCsvGr">Скачать оценки (Excel)</button>
             </div>
             <div class="tc-card" id="tcStudList"></div>`;
         document.getElementById('tcCsvAtt').onclick = () => window.CsvExport && window.CsvExport.attendance(cur, attCache);
         document.getElementById('tcCsvGr').onclick = () => window.CsvExport && window.CsvExport.grades(cur, gradesCache);
-        document.getElementById('tcAddForm').onsubmit = addStudent;
+        if (!ro) document.getElementById('tcAddForm').onsubmit = addStudent;
         const list = document.getElementById('tcStudList');
         if (!members.length) { list.innerHTML = '<div class="tc-empty">В группе пока нет учеников.</div>'; return; }
         members.forEach((m) => {
@@ -339,8 +352,8 @@
                 ${xp ? `<span class="tc-chip" title="XP за посещаемость и оценки в этой группе">${ic(xp.lvl.cur.icon)} ${esc(xp.lvl.cur.name)} · ${xp.xp} XP</span>` : ''}
                 <span class="tc-chip ${avg == null ? '' : avg >= 8 ? 'good' : avg >= 5 ? 'mid' : 'low'}">Средняя: ${avg == null ? '—' : fmtScore(avg)}</span>
                 <span class="tc-chip ${pct == null ? '' : pct >= 85 ? 'good' : pct >= 60 ? 'mid' : 'low'}">Посещ.: ${pct == null ? '—' : pct + '%'}</span>
-                <button class="tc-btn" data-grade="${esc(m.nickname)}" type="button">Оценить</button>
-                <button class="tc-btn danger" data-rm="${esc(m.uid)}" type="button">Убрать</button>`;
+                <button class="tc-btn" data-grade="${esc(m.nickname)}" type="button">${ro ? 'Оценки' : 'Оценить'}</button>
+                ${ro ? '' : `<button class="tc-btn danger" data-rm="${esc(m.uid)}" type="button">Убрать</button>`}`;
             list.appendChild(row);
         });
         list.querySelectorAll('[data-grade]').forEach((b) => b.addEventListener('click', () => { gradeFilter = b.dataset.grade; tab = 'grades'; renderGroup(); }));
@@ -368,7 +381,7 @@
 
     async function removeStudent(uid) {
         const m = cur.members.find((x) => x.uid === uid);
-        if (!m || !confirm('Убрать @' + m.nickname + ' из группы? Его оценки и отметки останутся в истории.')) return;
+        if (!m || !await confirm('Убрать @' + m.nickname + ' из группы? Его оценки и отметки останутся в истории.')) return;
         const members = cur.members.filter((x) => x.uid !== uid);
         const memberUids = members.map((x) => x.uid);
         try {
@@ -385,55 +398,18 @@
         attTopic = doc && doc.topic ? doc.topic : '';
     }
 
+    // School-style journal (attendance-journal.js): the teacher marks ONLY today's lesson; past and future days
+    // are marked by the curator (Firestore rules check the same thing).
     function renderAttendance() {
         const body = document.getElementById('tcBody');
         const members = cur.members || [];
         if (!members.length) { body.innerHTML = '<div class="tc-empty">Сначала добавьте учеников во вкладке «Ученики».</div>'; return; }
-        body.innerHTML = `
-            <div class="tc-card">
-                <div class="tc-row2">
-                    <div><label style="font-size:.8rem;color:var(--ink-soft);">Дата урока</label>
-                        <input type="date" id="tcAttDate" class="tc-input" value="${esc(attDate)}" max="${todayStr()}"></div>
-                    <div><label style="font-size:.8rem;color:var(--ink-soft);">Тема урока (по желанию)</label>
-                        <input type="text" id="tcAttTopic" class="tc-input" maxlength="120" value="${esc(attTopic)}" placeholder="Например: Reading — T/F/NG"></div>
-                </div>
-                <div class="tc-toolbar" style="margin:1rem 0 0.5rem;">
-                    <button class="tc-btn" type="button" id="tcAllPresent">Отметить всех: был</button>
-                    <button class="tc-btn" type="button" id="tcClearMarks">Сбросить</button>
-                </div>
-                <div id="tcAttRows"></div>
-                <div class="tc-actions" style="margin-top:1rem;">
-                    <button class="tc-btn primary" type="button" id="tcAttSave">Сохранить посещаемость</button>
-                </div>
-                <div class="tc-msg" id="tcAttMsg"></div>
-            </div>
-            <h4 style="margin:1.5rem 0 0.75rem;">История посещаемости</h4>
-            <div class="tc-card tc-scroll" id="tcAttHist"></div>`;
-
-        const rows = document.getElementById('tcAttRows');
-        members.forEach((m) => {
-            const cur_ = attMarks[m.nickname] || '';
-            const row = document.createElement('div');
-            row.className = 'tc-student';
-            row.innerHTML = `
-                <div class="tc-avatar">${esc(initials(m))}</div>
-                <div class="tc-who"><strong>${esc(m.name || '@' + m.nickname)}</strong><span class="tc-meta">@${esc(m.nickname)}</span></div>
-                <div class="tc-seg" data-nick="${esc(m.nickname)}">
-                    ${Object.keys(ST).map((k) => `<button type="button" data-s="${k}" class="${cur_ === k ? 'on-' + k : ''}">${ic(ST[k].icon)} ${ST[k].label}</button>`).join('')}
-                </div>`;
-            rows.appendChild(row);
+        if (!window.StarthAttJournal) { body.innerHTML = '<div class="tc-empty">Обновите страницу.</div>'; return; }
+        body.innerHTML = '<div id="tcAttJ"></div>';
+        window.StarthAttJournal.mount(document.getElementById('tcAttJ'), {
+            group: cur, mode: 'teacher', readOnly: !!cur._co, date: attDate,
+            onChange: (list) => { attCache = list; }
         });
-        rows.querySelectorAll('.tc-seg button').forEach((b) => b.addEventListener('click', () => {
-            const nick = b.parentNode.dataset.nick, s = b.dataset.s;
-            if (attMarks[nick] === s) delete attMarks[nick]; else attMarks[nick] = s;
-            b.parentNode.querySelectorAll('button').forEach((x) => { x.className = attMarks[nick] === x.dataset.s ? 'on-' + x.dataset.s : ''; });
-        }));
-        document.getElementById('tcAttDate').onchange = (e) => { attDate = e.target.value || todayStr(); loadAttForDate(); renderAttendance(); };
-        document.getElementById('tcAttTopic').oninput = (e) => { attTopic = e.target.value; };
-        document.getElementById('tcAllPresent').onclick = () => { members.forEach((m) => { attMarks[m.nickname] = 'present'; }); renderAttendance(); };
-        document.getElementById('tcClearMarks').onclick = () => { attMarks = {}; renderAttendance(); };
-        document.getElementById('tcAttSave').onclick = saveAttendance;
-        renderAttHistory();
     }
 
     async function saveAttendance() {
@@ -441,7 +417,7 @@
         btn.disabled = true;
         try {
             const data = {
-                groupId: cur.id, teacherUid: user.uid, date: attDate,
+                groupId: cur.id, teacherUid: user.uid, curatorUid: cur.curatorUid || '', date: attDate,
                 topic: (attTopic || '').trim(), marks: attMarks,
                 studentUids: (cur.memberUids || []).slice(),
                 updatedAt: new Date().toISOString()
@@ -471,7 +447,7 @@
                     return `<td class="${s ? 's-' + s : ''}">${s ? ic(ST[s].icon) : '–'}</td>`;
                 }).join('')}<td>${pct == null ? '—' : pct + '%'}</td></tr>`;
             }).join('')}</tbody></table>`;
-        box.querySelectorAll('[data-d]').forEach((b) => b.addEventListener('click', () => { attDate = b.dataset.d; loadAttForDate(); renderAttendance(); window.scrollTo({ top: document.getElementById('tcBody').offsetTop - 80, behavior: 'smooth' }); }));
+        if (!cur._co) box.querySelectorAll('[data-d]').forEach((b) => b.addEventListener('click', () => { attDate = b.dataset.d; loadAttForDate(); renderAttendance(); window.scrollTo({ top: document.getElementById('tcBody').offsetTop - 80, behavior: 'smooth' }); }));
     }
 
     // ── tab: grades ─────────────────────────────────────────────────────────
@@ -479,7 +455,8 @@
         const body = document.getElementById('tcBody');
         const members = cur.members || [];
         if (!members.length) { body.innerHTML = '<div class="tc-empty">Сначала добавьте учеников во вкладке «Ученики».</div>'; return; }
-        body.innerHTML = `
+        const ro = !!cur._co;
+        body.innerHTML = `${ro ? '' : `
             <form class="tc-form" id="tcGradeForm">
                 <div class="tc-row2">
                     <div><label>Ученик</label>
@@ -497,7 +474,7 @@
                 <input type="text" id="tcGComment" maxlength="200" placeholder="Например: хорошая работа над Writing Task 2">
                 <div class="tc-actions" style="margin-top:1rem;"><button class="tc-btn primary" type="submit">Поставить оценку</button></div>
                 <div class="tc-msg" id="tcGMsg"></div>
-            </form>
+            </form>`}
             <div class="tc-toolbar">
                 <label style="font-size:.85rem;color:var(--ink-soft);">Показать:</label>
                 <select id="tcGFilter" class="tc-input" style="width:auto;max-width:100%;">
@@ -506,7 +483,7 @@
                 </select>
             </div>
             <div class="tc-card" id="tcGList"></div>`;
-        document.getElementById('tcGradeForm').onsubmit = addGrade;
+        if (!ro) document.getElementById('tcGradeForm').onsubmit = addGrade;
         document.getElementById('tcGFilter').onchange = (e) => { gradeFilter = e.target.value; renderGradeList(); };
         renderGradeList();
     }
@@ -531,11 +508,11 @@
                     <strong>${esc((m && m.name) || '@' + x.studentNickname)}</strong> <span class="tc-meta">· ${esc(x.type || '')} · ${esc(fmtDate(x.date))}</span>
                     ${x.comment ? `<div style="margin-top:0.2rem;font-size:0.9rem;">${esc(x.comment)}</div>` : ''}
                 </div>
-                <button class="tc-btn danger" type="button" data-del="${esc(x.id)}" aria-label="Удалить оценку">${ic('x')}</button>
+                ${x.teacherUid === user.uid ? `<button class="tc-btn danger" type="button" data-del="${esc(x.id)}" aria-label="Удалить оценку">${ic('x')}</button>` : ''}
             </div>`;
         }).join('');
         box.querySelectorAll('[data-del]').forEach((b) => b.addEventListener('click', async () => {
-            if (!confirm('Удалить эту оценку?')) return;
+            if (!await confirm('Удалить эту оценку?')) return;
             try { await col('grades').doc(b.dataset.del).delete(); gradesCache = gradesCache.filter((x) => x.id !== b.dataset.del); renderGradeList(); }
             catch (err) { alert('Ошибка: ' + err.message); }
         }));
@@ -549,7 +526,7 @@
         const m = (cur.members || []).find((x) => x.nickname === nick);
         if (!m) return;
         const data = {
-            groupId: cur.id, teacherUid: user.uid,
+            groupId: cur.id, teacherUid: user.uid, curatorUid: cur.curatorUid || '',
             studentNickname: nick, studentUid: m.uid,
             score: Math.round(score * 10) / 10,
             type: document.getElementById('tcGType').value,
@@ -574,6 +551,9 @@
 
     // ── public ──────────────────────────────────────────────────────────────
     window.TeacherCabinet = {
+        /** open a group straight on a tab (used by the cabinet home: «отметить посещаемость за 20.10») */
+        async openGroup(id, openTab, date) { if (!groups.length) { try { await loadGroups(); } catch (e) {} } return openGroup(id, openTab, date); },
+        newGroup() { renderList(); const b = document.getElementById('tcNewBtn'); if (b) b.click(); },
         async init(u, p) {
             user = u; profile = p || {};
             root = document.getElementById('tcGroupsRoot');

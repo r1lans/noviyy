@@ -21,9 +21,11 @@
     const other = (c) => { const uid = (c.members || []).find((u) => u !== me.uid) || ''; return { uid, name: (c.names || {})[uid] || '', nick: (c.nicks || {})[uid] || '' }; };
     const who = (c) => { if (c.group) return (c.title || '') + (c.lastName ? ' · ' + c.lastName : ''); const o = other(c); return o.name || (o.nick ? '@' + o.nick : X('Новое сообщение')); };
     const isUnread = (c) => c.lastFrom && c.lastFrom !== me.uid && (c.lastTs || 0) > ((c.reads || {})[me.uid] || 0);
-    const onMessengerPage = () => /messenger\.html/.test(location.pathname);
+    const onMessengerPage = () => /\/messenger(\.html)?$/.test(location.pathname);
     const openChatId = () => (window.Messenger && window.Messenger.openId ? window.Messenger.openId() : '');
-    const lookingAtIt = (c) => onMessengerPage() && openChatId() === c.id && document.visibilityState === 'visible' && document.hasFocus();
+    // the messenger panel inside the video lesson (lesson-drawer.js) counts as «looking at it» while it is open
+    const drawerChat = () => (window.StarthLessonDrawer && window.StarthLessonDrawer.openChatId ? window.StarthLessonDrawer.openChatId() : '');
+    const lookingAtIt = (c) => ((onMessengerPage() && openChatId() === c.id) || drawerChat() === c.id) && document.visibilityState === 'visible';
     const supported = () => 'Notification' in window;
     const soundOn = () => store.get(LS) !== '0';
 
@@ -31,6 +33,7 @@
     function paint() {
         const n = me ? chats.filter(isUnread).length : 0;
         document.querySelectorAll('a.nav-msg-link').forEach((a) => { if (n) a.setAttribute('data-unread', n > 9 ? '9+' : String(n)); else a.removeAttribute('data-unread'); });
+        try { window.dispatchEvent(new CustomEvent('starth-unread', { detail: { n } })); } catch (e) {}
         const base = document.title.replace(/^\(\d+\+?\)\s/, '');
         document.title = n ? '(' + n + ') ' + base : base;
     }
@@ -54,7 +57,8 @@
     function openFromNotification(c) {
         try { window.focus(); } catch (e) {}
         if (onMessengerPage() && window.Messenger && window.Messenger.openById) { window.Messenger.openById(c.id); return; }
-        if (c.group) { location.href = 'messenger.html?gid=' + encodeURIComponent(c.id); return; } const o = other(c); location.href = 'messenger.html' + (o.nick ? '?chat=' + encodeURIComponent(o.nick) : '');
+        if (window.StarthLessonDrawer && window.StarthLessonDrawer.openMessenger) { window.StarthLessonDrawer.openMessenger(c.id); return; }   // in a lesson: do not leave it
+        if (c.group) { location.href = 'messenger?gid=' + encodeURIComponent(c.id); return; } const o = other(c); location.href = 'messenger' + (o.nick ? '?chat=' + encodeURIComponent(o.nick) : '');
     }
 
     function system(c) {
@@ -73,6 +77,11 @@
         const away = document.visibilityState !== 'visible' || !document.hasFocus();
         ping();
         if (away) { system(c); return; }
+        if (window.StarthLessonDrawer && window.StarthUI) {   // in a lesson: a toast that opens the chat in the side panel
+            window.StarthUI.toast(X('Новое сообщение от ') + who(c), 'info');
+            const tt = document.querySelector('.sui-toasts .sui-toast:last-child'); if (tt) tt.onclick = () => openFromNotification(c);
+            return;
+        }
         if (window.showToast) window.showToast(X('Новое сообщение от ') + who(c), 'message');
     }
 

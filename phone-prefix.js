@@ -25,29 +25,56 @@
     let dn = {}; const names = () => { const lg = lang(); if (!dn[lg]) { try { dn[lg] = new Intl.DisplayNames([lg === 'uz' ? 'uz-Latn' : lg], { type: 'region' }); } catch (e) { dn[lg] = null; } } return dn[lg]; };
     const cname = (iso) => { try { const n = names(); return (n && n.of(iso)) || iso; } catch (e) { return iso; } };
 
-    const isPhone = (el) => el && el.tagName === 'INPUT' && !el.hasAttribute('data-nophone') && (el.type === 'tel' || el.name === 'phone' || /phone$/i.test(el.id || ''));
+    const isPhone = (el) => el && el.tagName === 'INPUT' && el.type !== 'hidden' && !el.__owner && (el.__phone === true || (!el.hasAttribute('data-nophone') && (el.type === 'tel' || el.name === 'phone' || /phone$/i.test(el.id || ''))));
     const isTg = (el) => el && el.tagName === 'INPUT' && (el.name === 'telegram' || el.id === 'peTg' || el.hasAttribute('data-tg'));
 
     // ── number formatting ──
     const groups = (d, dial) => {
         if (dial === '998') return [d.slice(0, 2), d.slice(2, 5), d.slice(5, 7), d.slice(7, 9)].filter(Boolean).join(' ');
-        const out = []; let i = 0; const sizes = [3, 3, 2, 2, 2, 2];
+        const n = NAT[dial] || 0;
+        const out = []; let i = 0; const sizes = n === 9 ? [3, 2, 2, 2] : n === 8 ? [2, 3, 3] : [3, 3, 2, 2, 2, 2];
         sizes.forEach((n) => { if (i < d.length) { out.push(d.slice(i, i + n)); i += n; } });
         if (i < d.length) out.push(d.slice(i));
         return out.join(' ');
     };
-    const maxNational = (dial) => (dial === '998' ? 9 : Math.max(4, 15 - dial.length));
+    // Exact length of the national part for the countries our students come from. A number of exactly
+    // "dial + national" digits is a number typed together with its country code; anything shorter is the
+    // national part itself. (Before, "+7" + "777 123 45 67" (Kazakhstan) lost digits while typing: every
+    // number starting with 7 was taken for a re-typed country code.)
+    const NAT = { '998': 9, '7': 10, '996': 9, '992': 9, '993': 8, '994': 9, '995': 9, '374': 8, '375': 9, '380': 9, '90': 10, '1': 10, '44': 10, '971': 9, '966': 9, '82': 10, '49': 11, '33': 9, '39': 10, '86': 11, '91': 10, '972': 9, '48': 9, '370': 8, '371': 8, '372': 8, '373': 8 };
+    const maxNational = (dial) => NAT[dial] || Math.max(4, 15 - dial.length);
+    /** A number typed without "+" while the field still has the default country (+998), but which is plainly
+     *  a number of another country ("7 912 345 67 89", "8 912 …", "90 532 …" too long for Uzbekistan …).
+     *  Returns { dial, d } or null. Only numbers longer than an Uzbek one are re-read, so Uzbek numbers never change. */
+    function foreign(d) {
+        if (d.length <= 9) return null;
+        if (d.length === 11 && d.charAt(0) === '8') return { dial: '7', d: d.slice(1) };          // Russia / Kazakhstan, "8 9xx …"
+        const pref = COMMON.map((i) => (COUNTRIES.find((c) => c.iso === i) || {}).dial).filter(Boolean);
+        const order = Array.from(new Set(pref.concat(DIALS)));
+        for (const c of order) {
+            if (c === '998' || d.indexOf(c) !== 0) continue;
+            const rest = d.length - c.length;
+            if (NAT[c] ? rest === NAT[c] : (rest >= 6 && rest <= 15 - c.length)) return { dial: c, d: d.slice(c.length) };
+        }
+        return null;
+    }
     /** raw → { dial, text } ; el.__dial remembers the chosen country */
-    function parse(raw, curDial) {
+    function parse(raw, curDial, chosen) {
         raw = String(raw || '');
         if (raw.lastIndexOf('+') > 0) raw = raw.slice(raw.lastIndexOf('+'));          // a whole number pasted after the old prefix ("+7 +998 90 …")
         let d = raw.replace(/\D/g, ''), dial = curDial || DEFAULT;
         if (raw.trim().charAt(0) === '+') {                                   // "+code rest": the current country wins, otherwise the country is read from the number
             if (d.indexOf(dial) === 0) d = d.slice(dial.length);
             else { const m = DIALS.find((c) => d.indexOf(c) === 0); if (m) { dial = m; d = d.slice(m.length); } }
-        } else if (dial === '998' && d.indexOf('998') === 0) d = d.slice(3);                                      // "998901234567"
-        else if (d.indexOf(dial) === 0 && d.length > dial.length + 6) d = d.slice(dial.length);
+        } else if (dial === '998' && d.indexOf('998') === 0 && d.length > 9) d = d.slice(3);                    // "998901234567"
+        else if (dial === '998' && !chosen && foreign(d)) { const f = foreign(d); dial = f.dial; d = f.d; }   // "79123456789" typed into a +998 field
+        else if (dial !== '998' && NAT[dial] && d.length === dial.length + NAT[dial] && d.indexOf(dial) === 0) d = d.slice(dial.length);   // "7 777 123 45 67" with +7 chosen
+        else if (dial === '7' && d.length === 11 && d.charAt(0) === '8') d = d.slice(1);                       // "8 912 …" with +7 chosen
+        else if (dial !== '998' && !NAT[dial] && d.indexOf(dial) === 0 && d.length > dial.length + 9) d = d.slice(dial.length);
         else if (d.charAt(0) === '0' && dial === '998') d = d.slice(1);
+        // Still typing a foreign number into the +998 field ("7912345678…"): do not cut it to 9 digits —
+        // keep everything until it can be recognised (the field stays marked "incomplete" meanwhile).
+        if (dial === '998' && !chosen && d.length > 9) { d = d.slice(0, 15); return { dial, d, text: '+' + dial + ' ' + groups(d, '') }; }
         d = d.slice(0, maxNational(dial));
         return { dial, d, text: '+' + dial + ' ' + groups(d, dial) };
     }
@@ -55,14 +82,38 @@
 
     const dialOf = (el) => el.__dial || DEFAULT;
     function validity(el) {
-        const v = el.value.trim(), d = v.replace(/\D/g, ''), dial = dialOf(el);
+        const d = el.value.replace(/\D/g, ''), dial = dialOf(el);
         let ok = true;
-        if (d && d !== dial) ok = dial === '998' ? d.length === 12 : (d.length - dial.length >= 5 && d.length <= 15);
+        if (d) ok = dial === '998' ? d.length === 9 : (d.length >= 5 && d.length <= Math.max(4, 15 - dial.length));
         const lg = L[lang()] || L.ru;
         el.setCustomValidity(ok ? '' : (lg.full + (dial === '998' ? ': +998 XX XXX XX XX' : '')));
     }
-    function setValue(el, text) { if (el.value !== text) el.value = text; syncBtn(el); validity(el); try { el.setSelectionRange(el.value.length, el.value.length); } catch (e) {} }
-    function apply(el) { const p = parse(el.value, dialOf(el)); el.__dial = p.dial; setValue(el, p.text); }
+    // the visible field shows only the national part ("90 123 45 67"); the dial code lives in the country button
+    // and the full E.164-ish value ("+998 90 123 45 67") is kept on a hidden twin input that carries the field's
+    // original name/id, so existing code that reads form.phone.value / getElementById(...).value keeps working.
+    function setValue(el, full) {
+        const nat = full.replace(/^\+\d+\s*/, '');
+        if (el.value !== nat) el.value = nat;
+        const tw = nat ? full : '';                                   // nothing typed -> the twin is fully empty too (not just "+dial ")
+        if (el.__twin && el.__twin.value !== tw) el.__twin.value = tw;
+        el.__last = el.value;
+        syncBtn(el); validity(el);
+        try { el.setSelectionRange(el.value.length, el.value.length); } catch (e) {}
+    }
+    function apply(el) {
+        const v = String(el.value).trim();
+        if (v.charAt(0) === '+') {                                              // the person types the country code themselves
+            const dg = v.replace(/\D/g, '');
+            if (!DIALS.some((c) => dg.indexOf(c) === 0)) {                      // "+", "+9", "+99" … — not a full code yet: let them keep typing
+                el.__last = el.value; if (el.__twin) el.__twin.value = '';
+                el.setCustomValidity(dg ? (L[lang()] || L.ru).full : ''); return;
+            }
+            el.__chosen = true; el.__iso = '';
+        }
+        const p = parse(el.value, dialOf(el), el.__chosen);
+        if (p.dial !== dialOf(el)) el.__iso = '';
+        el.__dial = p.dial; setValue(el, p.text);
+    }
 
     // ── country button + wrapper ──
     const isoFor = (el) => { const dial = dialOf(el); if (el.__iso && COUNTRIES.some((c) => c.iso === el.__iso && c.dial === dial)) return el.__iso; const m = COMMON.find((i) => COUNTRIES.some((c) => c.iso === i && c.dial === dial)); return m || (COUNTRIES.find((c) => c.dial === dial) || {}).iso || ''; };
@@ -70,7 +121,6 @@
         const b = el.__ppBtn; if (!b) return;
         b.querySelector('.pp-dial').textContent = '+' + dialOf(el);
         b.title = (L[lang()] || L.ru).code + ': ' + cname(isoFor(el));
-        el.__last = el.value;
     }
     function wrap(el) {
         if (el.__ppBtn || !el.parentNode) return;
@@ -82,7 +132,13 @@
         const b = document.createElement('button'); b.type = 'button'; b.className = 'pp-btn';
         b.innerHTML = '<span class="pp-dial">+998</span><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M1 3l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
         b.style.borderRadius = cs.borderRadius; b.style.borderColor = cs.borderTopColor; b.style.background = cs.backgroundColor; b.style.color = cs.color; b.style.fontSize = cs.fontSize; b.style.fontFamily = cs.fontFamily;
-        w.appendChild(b); w.appendChild(el); el.__ppBtn = b; el.__wrap = w;
+        // hidden twin: carries the field's original name/id and the full "+<dial> <number>" value, so existing
+        // code that reads it (form.phone.value, getElementById('leadPhone').value, …) keeps working unchanged.
+        const twin = document.createElement('input'); twin.type = 'hidden';
+        if (el.name) { twin.name = el.name; el.removeAttribute('name'); }
+        if (el.id) { twin.id = el.id; el.removeAttribute('id'); }
+        el.__twin = twin; twin.__owner = el;
+        w.appendChild(b); w.appendChild(el); w.appendChild(twin); el.__ppBtn = b; el.__wrap = w;
         b.addEventListener('click', () => openPicker(el));
         // keep the wrapper hidden/shown together with the field
         try { new MutationObserver(() => { w.style.display = getComputedStyle(el).display === 'none' ? 'none' : ''; }).observe(el, { attributes: true, attributeFilter: ['style', 'class', 'hidden'] }); } catch (e) {}
@@ -114,7 +170,7 @@
         list.addEventListener('click', (e) => {
             const r = e.target.closest('.pp-row'); if (!r) return;
             const nat = parse(el.value, dialOf(el)).d;                     // keep what was typed after the old prefix
-            el.__dial = r.dataset.dial; el.__iso = r.dataset.iso;
+            el.__dial = r.dataset.dial; el.__iso = r.dataset.iso; el.__chosen = true;
             setValue(el, '+' + r.dataset.dial + ' ' + groups(nat.slice(0, maxNational(r.dataset.dial)), r.dataset.dial));
             close(); try { el.focus(); } catch (er) {}
             el.dispatchEvent(new Event('change', { bubbles: true }));
@@ -126,13 +182,15 @@
         if (el.__phone) return; el.__phone = true;
         el.setAttribute('inputmode', 'tel'); el.setAttribute('autocomplete', el.getAttribute('autocomplete') || 'tel');
         el.removeAttribute('maxlength');
-        el.setAttribute('placeholder', '+998 90 123 45 67');
-        if (el.value) { const p = parse(el.value, DEFAULT); el.__dial = p.dial; el.value = p.text; }
-        wrap(el); syncBtn(el); validity(el);
+        el.setAttribute('placeholder', '90 123 45 67');
+        const initial = el.value;
+        wrap(el);
+        if (initial) { const p = parse(initial, DEFAULT); el.__dial = p.dial; setValue(el, p.text); }
+        else { syncBtn(el); validity(el); }
     }
     document.addEventListener('focusin', (e) => {
         const el = e.target;
-        if (isPhone(el)) { prep(el); if (!el.value) { el.value = '+' + dialOf(el) + ' '; setTimeout(() => { try { el.setSelectionRange(el.value.length, el.value.length); } catch (er) {} }, 0); } }
+        if (isPhone(el)) prep(el);
         else if (isTg(el)) { if (!el.value) { el.value = '@'; setTimeout(() => { try { el.setSelectionRange(1, 1); } catch (er) {} }, 0); } }
     });
     document.addEventListener('input', (e) => {
@@ -142,20 +200,30 @@
     }, true);
     document.addEventListener('keydown', (e) => {
         const el = e.target;
-        if (isPhone(el) && (e.key === 'Backspace' || e.key === 'Delete') && el.value.length <= dialOf(el).length + 2 && el.selectionStart === el.selectionEnd) e.preventDefault();   // keep "+998 "
-        else if (isTg(el) && e.key === 'Backspace' && el.value === '@') e.preventDefault();
+        if (isTg(el) && e.key === 'Backspace' && el.value === '@') e.preventDefault();
     });
     document.addEventListener('blur', (e) => {
         const el = e.target;
-        if (isPhone(el)) { if (el.value.replace(/\D/g, '') === dialOf(el)) { el.value = ''; syncBtn(el); } validity(el); }   // nothing typed: leave the field empty (so "required" works)
+        if (isPhone(el)) validity(el);
         else if (isTg(el) && el.value === '@') el.value = '';
     }, true);
     function scan() {
         document.querySelectorAll('input[type="tel"], input[name="phone"], input[id$="hone"]').forEach((el) => { if (isPhone(el)) prep(el); });
-        // values set from code (profile editor, autofill) → keep the button in step
-        document.querySelectorAll('input').forEach((el) => { if (el.__ppBtn && el.value !== el.__last) { const p = parse(el.value, dialOf(el)); if (el.value && p.text !== el.value) { el.__dial = p.dial; el.value = p.text; } else if (el.value) el.__dial = p.dial; syncBtn(el); } });
+        // values set from code (profile editor, autofill, payment prefilling by id, …) → keep button + field in step
+        document.querySelectorAll('input').forEach((el) => {
+            if (!el.__ppBtn) return;
+            const tw = el.__twin;
+            if (tw && tw.value !== (tw.__sval || '')) {                         // someone wrote the hidden twin (the full "+dial number" value)
+                tw.__sval = tw.value;
+                if (tw.value) { const p = parse(tw.value, dialOf(el)); el.__dial = p.dial; setValue(el, p.text); }
+                else { el.value = ''; tw.value = ''; syncBtn(el); validity(el); }
+                el.__last = el.value;
+            } else if (el.value !== el.__last) apply(el);                       // someone wrote the visible field directly
+        });
     }
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', scan); else scan();
     setInterval(scan, 800);
-    window.StarthPhone = { format: fmt, countries: COUNTRIES };
+    // Code that just wrote a phone field's value by id (profile editor's open(), payment prefilling, …)
+    // can call this to show it immediately instead of waiting up to 800ms for the next scan().
+    window.StarthPhone = { format: fmt, countries: COUNTRIES, sync: scan };
 })();

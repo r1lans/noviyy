@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="theme.js?v=92"></script>
+    <script src="ui-dialogs.js?v=92"></script>
+    <!-- speed: open connections early and pre-load pages the visitor is about to open (hover / touch) -->
+    <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <script type="speculationrules">{"prefetch":[{"where":{"and":[{"href_matches":"/*"},{"not":{"href_matches":"/*\\?*logout*"}}]},"eagerness":"moderate"}]}</script>
+    <script src="sheets-config.js?v=92"></script>
+    <title>Платформа для ваших уроков — TheStarth</title>
+    <meta name="twitter:image" content="https://thestarth.com/images/og-image.jpg">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta property="og:type" content="website">
+    <meta property="og:locale" content="ru_RU">
+    <meta property="og:site_name" content="TheStarth">
+    <meta property="og:image" content="https://thestarth.com/images/og-image.jpg">
+    <meta property="og:url" content="https://thestarth.com/partners">
+    <meta property="og:description" content="Ведите свои онлайн-уроки на платформе TheStarth: видеоурок по ссылке, доска, посещаемость, оценки и Telegram-бот. 14 дней бесплатно.">
+    <meta property="og:title" content="Платформа для ваших уроков — TheStarth">
+    <link rel="canonical" href="https://thestarth.com/partners">
+    <meta name="description" content="Ведите свои онлайн-уроки на платформе TheStarth: видеоурок по ссылке, доска, посещаемость, оценки и Telegram-бот. 14 дней бесплатно.">
+    <link rel="icon" href="/favicon.ico" sizes="any">
+    <link rel="icon" type="image/png" sizes="48x48" href="/images/favicon-48.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="/images/favicon-192.png">
+    <link rel="manifest" href="/site.webmanifest">
+    <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon.png">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Fraunces:opsz,wght@9..144,600..900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css?v=92">
+    <style>
+        .pt-hero { padding: 7rem 1.5rem 3rem; text-align: center; max-width: 880px; margin: 0 auto; }
+        .pt-hero h1 { font-size: clamp(2rem, 5vw, 3.1rem); line-height: 1.1; margin: 0 0 1rem; }
+        .pt-hero p { color: var(--ink-soft); font-size: 1.1rem; line-height: 1.6; margin: 0 auto 1.8rem; max-width: 640px; }
+        .pt-cta { display: flex; gap: .8rem; justify-content: center; flex-wrap: wrap; }
+        .pt-cta a { padding: .95rem 1.7rem; border-radius: 12px; font-weight: 700; text-decoration: none; }
+        .pt-sec { max-width: 1080px; margin: 0 auto 4rem; padding: 0 1.5rem; }
+        .pt-sec h2 { text-align: center; margin: 0 0 1.6rem; }
+        .pt-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; }
+        .pt-card { background: var(--paper-alt); border: 1px solid var(--rule); border-radius: 18px; padding: 1.3rem; }
+        .pt-card .pt-ic { width: 44px; height: 44px; border-radius: 12px; background: var(--accent-tint, rgba(176,122,14,.12)); color: var(--accent); display: flex; align-items: center; justify-content: center; margin-bottom: .8rem; }
+        .pt-card .pt-ic svg { width: 22px; height: 22px; }
+        .pt-card h3 { margin: 0 0 .4rem; font-size: 1.05rem; } .pt-card p { margin: 0; color: var(--ink-soft); line-height: 1.55; font-size: .93rem; }
+        .pt-steps { counter-reset: st; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; }
+        .pt-step { position: relative; padding: 1.3rem 1.3rem 1.3rem 4rem; background: var(--paper); border: 1px solid var(--rule); border-radius: 18px; }
+        .pt-step::before { counter-increment: st; content: counter(st); position: absolute; left: 1.2rem; top: 1.2rem; width: 2rem; height: 2rem; border-radius: 50%; background: var(--accent); color: var(--on-accent, #fff); display: flex; align-items: center; justify-content: center; font-weight: 800; }
+        .pt-step b { display: block; margin-bottom: .3rem; } .pt-step span { color: var(--ink-soft); font-size: .92rem; line-height: 1.5; }
+        .pt-price { max-width: 520px; margin: 0 auto; text-align: center; background: var(--paper-alt); border: 2px solid var(--accent); border-radius: 22px; padding: 2rem 1.5rem; }
+        .pt-price .big { font-size: 2.4rem; font-weight: 800; margin: .4rem 0; } .pt-price ul { text-align: left; margin: 1.2rem auto; max-width: 360px; padding-left: 1.2rem; line-height: 1.8; }
+        .pt-cmp { width: 100%; border-collapse: collapse; background: var(--paper); border-radius: 14px; overflow: hidden; } .pt-cmp th, .pt-cmp td { padding: .7rem .9rem; border-bottom: 1px solid var(--rule); text-align: left; font-size: .92rem; }
+        .pt-cmp th { background: var(--paper-alt); } .pt-cmp td:not(:first-child), .pt-cmp th:not(:first-child) { text-align: center; } .pt-yes { color: #1e8449; font-weight: 700; } .pt-no { color: var(--ink-soft); }
+        .pt-wrap { overflow-x: auto; }
+    </style>
+</head>
+<body style="padding-top: 80px;">
+
+    <!-- Navbar -->
+    <nav class="navbar">
+        <div class="nav-container">
+            <a href="./" style="text-decoration: none;">
+                <div class="logo" style="display: flex; align-items: center; gap: 12px; letter-spacing: normal;">
+                    <img class="site-logo-full" src="images/logo-full.png" alt="TheStarth — Start with the best." style="height:53px;width:auto;object-fit:contain;display:block;">
+                </div>
+            </a>
+            <button class="mobile-toggle" aria-label="Toggle menu"><svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:-0.15em;flex-shrink:0;"><path d="M4 6.5h16"/><path d="M4 12h16"/><path d="M4 17.5h16"/></svg></button>
+            <div class="nav-links">
+                <a href="./">На главную</a>
+                <a href="./#pricing" data-i18n="nav.courses">Курсы</a>
+                <a href="results" data-i18n="nav.results">Результаты</a>
+                <a href="about" data-i18n="nav.about">О нас</a>
+                <a href="news" data-i18n="nav.news">Новости</a>
+                <a href="payment" class="btn-outline" style="border-color: var(--accent); color: var(--accent);" data-i18n="nav.payment">Оплата</a>
+                <div class="lang-switch">
+                    <a href="#" onclick="changeLanguage('ru'); return false;" class="lang-btn active">RU</a>
+                    <a href="#" onclick="changeLanguage('uz'); return false;" class="lang-btn">UZ</a>
+                    <a href="#" onclick="changeLanguage('en'); return false;" class="lang-btn">EN</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero -->
+    <header class="careers-hero">
+        <div style="font-family: var(--font-heading); font-weight: 800; font-size: 1rem; color: var(--accent); letter-spacing: 3px; text-transform: uppercase; margin-bottom: 1rem;">Careers · Join The Team</div>
+        <h1>Растите вместе с <span class="text-premium">TheStarth</span></h1>
+        <p style="font-size: 1.2rem; color: var(--ink-soft); max-width: 700px; margin: 1.5rem auto 0;">Мы ищем талантливых преподавателей, которые любят математику и английский язык так же, как и мы. Мы ценим личные результаты учеников, непрерывное развитие и высокий уровень преподавания.</p>
+    </header>
+
+    <main>
+        <section class="pt-hero">
+            <span class="badge-pill" style="display:inline-block;margin-bottom:1rem;">Для учителей и учебных центров</span>
+            <h1>Ведите свои уроки <span class="text-premium">на TheStarth</span></h1>
+            <p>Своя онлайн-школа без Зума: видеоурок по ссылке, доска, посещаемость, оценки, мессенджер и Telegram-бот для ваших учеников — всё в одном месте.</p>
+            <div class="pt-cta"><a class="btn-primary" href="dashboard?next=%2Fdashboard%23profile">Подать заявку</a><a class="btn-outline" href="#price">Сколько стоит</a></div>
+        </section>
+        <section class="pt-sec"><h2>Что вы получаете</h2><div class="pt-grid"><div class="pt-card"><div class="pt-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="5" width="14" height="14" rx="2"/><path d="m16 10 6-3v10l-6-3"/></svg></div><h3>Видеоурок по ссылке</h3><p>Ученики заходят с телефона или ноутбука, без установки программ. Демонстрация экрана, чат, поднятая рука, «выключить всем микрофон».</p></div><div class="pt-card"><div class="pt-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21l3-1 11-11-2-2L4 18z"/><path d="M14 6l2 2"/><rect x="3" y="3" width="18" height="18" rx="2" opacity=".35"/></svg></div><h3>Доска с правами</h3><p>Пишете вы — и только те ученики, которым вы разрешили. Сетка, текст, координаты, «следить за учителем».</p></div><div class="pt-card"><div class="pt-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div><h3>Посещаемость и оценки</h3><p>Кто был, кто опоздал, сколько минут провёл на уроке. Оценки и журнал по каждому ученику.</p></div><div class="pt-card"><div class="pt-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></svg></div><h3>Telegram-бот</h3><p>Напоминания ученикам за 60, 30 и 5 минут, кнопка «Не смогу прийти», приложение с оценками и чатом прямо в Telegram.</p></div><div class="pt-card"><div class="pt-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div><h3>Мессенджер</h3><p>Личные и групповые чаты с учениками на сайте и в Telegram, с фото, ответами и закреплёнными сообщениями.</p></div><div class="pt-card"><div class="pt-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div><h3>Ваши данные — только ваши</h3><p>Вы видите только свои группы и учеников. Учёба, оценки и переписка — на защищённом сервере.</p></div></div></section>
+        <section class="pt-sec"><h2>Как начать</h2><div class="pt-steps">
+            <div class="pt-step"><b>Зарегистрируйтесь</b><span>Создайте аккаунт на thestarth.com — это бесплатно.</span></div>
+            <div class="pt-step"><b>Подайте заявку</b><span>Личный кабинет → Профиль → «Подать заявку». Напишите, что преподаёте.</span></div>
+            <div class="pt-step"><b>Мы одобряем</b><span>Обычно в течение дня. У вас появится кабинет учителя и <span id="ptTrial">14</span> дней бесплатно.</span></div>
+            <div class="pt-step"><b>Создайте группу</b><span>Добавьте учеников по нику и начните урок одной кнопкой.</span></div>
+        </div></section>
+        <section class="pt-sec" id="price"><h2>Цена</h2><div class="pt-price">
+            <div style="color:var(--ink-soft)">Один учитель</div>
+            <div class="big" id="ptPrice">по договорённости</div>
+            <div style="color:var(--ink-soft)" id="ptPer">в месяц</div>
+            <ul><li>Без ограничения по времени урока</li><li>До <span id="ptMax">6</span> человек на видеоуроке</li><li>Доска, посещаемость, оценки, журнал</li><li>Мессенджер и Telegram-бот для учеников</li><li><span id="ptTrial2">14</span> дней бесплатно</li></ul>
+            <a class="btn-primary" href="dashboard?next=%2Fdashboard%23profile" style="display:inline-block;padding:.9rem 1.8rem;border-radius:12px;text-decoration:none;font-weight:700">Начать бесплатно</a>
+            <p style="color:var(--ink-soft);font-size:.85rem;margin:1rem 0 0">Вопросы: <a href="https://t.me/TheStarth" target="_blank" rel="noopener" id="ptContact">@TheStarth</a></p>
+        </div></section>
+        <section class="pt-sec"><h2>Чем удобнее Зума</h2><div class="pt-wrap"><table class="pt-cmp">
+            <tr><th></th><th>TheStarth</th><th>Zoom (бесплатный)</th></tr>
+            <tr><td>Длительность урока</td><td class="pt-yes">без ограничений</td><td class="pt-no">40 минут</td></tr>
+            <tr><td>Доска, где пишет только учитель (и кому разрешил)</td><td class="pt-yes">да</td><td class="pt-no">нет</td></tr>
+            <tr><td>Посещаемость и оценки учеников</td><td class="pt-yes">да</td><td class="pt-no">нет</td></tr>
+            <tr><td>Напоминания ученикам в Telegram</td><td class="pt-yes">да</td><td class="pt-no">нет</td></tr>
+            <tr><td>Вход без установки программ</td><td class="pt-yes">да</td><td class="pt-no">нужна программа</td></tr>
+        </table></div></section>
+    </main>
+
+    <footer>
+        <div class="footer-content" style="max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); gap: 3rem; margin-bottom: 3rem;">
+            <div class="footer-col">
+                <div class="logo" style="margin-bottom: 1rem;">The<span>Starth</span></div>
+                <p style="color: var(--ink-soft); font-size: 0.9rem;">Образование будущего. Математика и Английский язык.</p>
+            </div>
+            <div class="footer-col">
+                <h4 data-i18n="footer.quicklinks">Быстрые ссылки</h4>
+                <ul>
+                    <li><a href="./">Главная</a></li>
+                    <li><a href="./#pricing" data-i18n="nav.courses">Курсы</a></li>
+                    <li><a href="about" data-i18n="nav.about">О нас</a></li>
+                    <li><a href="news" data-i18n="nav.news">Новости</a></li>
+                    <li><a href="careers" style="color: var(--accent);">Вакансии</a></li>
+                </ul>
+            </div>
+            <div class="footer-col">
+                <h4 data-i18n="footer.contacts">Контакты</h4>
+                <ul>
+                    <li><a href="#">TheStarthInternational@gmail.com</a></li>
+                    <li><a href="https://wa.me/998500974424" target="_blank">WhatsApp: +998 50 097 44 24</a></li>
+                </ul>
+            </div>
+        </div>
+        <div class="footer-bottom" style="text-align: center; color: var(--ink-soft); font-size: 0.9rem; padding-top: 2rem; border-top: 1px solid var(--rule);">
+            <p><span data-i18n="footer.copyright">&copy; 2026 TheStarth. Все права защищены.</span> | <a href="privacy" style="color: var(--ink-soft); text-decoration: underline;" data-i18n="footer.privacy">Политика конфиденциальности</a></p>
+        </div>
+    </footer>
+
+    <script>
+        // price and terms from Admin panel -> Партнёры -> «Тариф» (settings/partners)
+        (function () {
+            function apply(x) {
+                if (!x) return;
+                if (x.price) document.getElementById('ptPrice').textContent = x.price;
+                if (x.per) document.getElementById('ptPer').textContent = x.per;
+                if (x.trialDays) { document.getElementById('ptTrial').textContent = x.trialDays; document.getElementById('ptTrial2').textContent = x.trialDays; }
+                if (x.maxPeople) document.getElementById('ptMax').textContent = x.maxPeople;
+                if (x.contact) { var c = document.getElementById('ptContact'); c.textContent = x.contact; c.href = 'https://t.me/' + String(x.contact).replace(/^@/, ''); }
+            }
+            window.addEventListener('load', function () {
+                if (typeof FIREBASE_READY === 'undefined' || !FIREBASE_READY) return;
+                db.collection('settings').doc('partners').get().then(function (d) { if (d.exists) apply(d.data()); }).catch(function () {});
+            });
+        })();
+    </script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+    <script src="firebase-config.js?v=92"></script>
+    <script src="admin-nav.js?v=92"></script>
+    <script src="translations.js?v=93"></script>
+    <script src="content-i18n.js?v=92"></script>
+    <script src="icons.js?v=92"></script>
+    <script src="app.js?v=94"></script>
+    
+    <script src="back-btn.js?v=92"></script>
+    <script src="phone-prefix.js?v=93"></script>
+    <script src="mock-config.js?v=92"></script>
+    <script src="assistant.js?v=93"></script>
+</body>
+</html>

@@ -24,7 +24,7 @@
     const dot = (s) => (s ? `<i class="pres-dot pres-${s}" title="${label(s)}"></i>` : '');
 
     function write(state) {
-        if (!me || typeof db === 'undefined') return;
+        if (!me || typeof db === 'undefined' || window.STARTH_EMBED) return;   // a panel inside the lesson page: the lesson page itself reports «на уроке»
         const profile = window.currentUserProfile || {};
         showStatus = profile.showStatus !== false;
         db.collection('presence').doc(me.uid).set({ state, ts: Date.now(), show: showStatus }).catch(() => {});
@@ -37,7 +37,7 @@
         watchSelf();
     }
     function stop() { if (timer) clearInterval(timer); timer = null; }
-    function goOffline() { if (me && typeof db !== 'undefined') db.collection('presence').doc(me.uid).set({ state: 'online', ts: 0, show: showStatus }).catch(() => {}); }
+    function goOffline() { if (me && typeof db !== 'undefined' && !window.STARTH_EMBED) db.collection('presence').doc(me.uid).set({ state: 'online', ts: 0, show: showStatus }).catch(() => {}); }
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') beat(); });
     window.addEventListener('pagehide', goOffline);
 
@@ -60,7 +60,7 @@
         selfUnsubs.forEach((u) => { try { u(); } catch (e) {} }); selfUnsubs = [];
         let role0, first = true, adm0, firstA = true;
         selfUnsubs.push(db.collection('users').doc(me.uid).onSnapshot((d) => {
-            if (!d.exists) return; const x = d.data(); const r = x.role === 'teacher' ? 'teacher' : 'student';
+            if (!d.exists) return; const x = d.data(); const r = ['teacher', 'partner', 'curator', 'partner_curator'].indexOf(x.role) !== -1 ? 'teacher' : 'student';
             if (window.currentUserProfile) { window.currentUserProfile.showStatus = x.showStatus; }
             if (first) { first = false; role0 = r; return; }
             if (r !== role0) {
