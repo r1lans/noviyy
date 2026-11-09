@@ -19,6 +19,22 @@
     const initials = (n) => String(n || '?').trim().split(/\s+/).slice(0, 2).map((w) => w.charAt(0)).join('').toUpperCase() || '?';
     const rid = () => Math.random().toString(36).slice(2, 10);
     const ONLINE_MS = 70000, HEARTBEAT_MS = 20000;
+    // Everyone's clock is corrected to the server's: a laptop whose clock is a few minutes off used to drop every
+    // "handshake" message as too old and showed "Подключение…" forever.
+    let SKEW = 0;
+    const now = () => Date.now() + SKEW;
+    window.starthNow = now;   // the whiteboard uses the same corrected clock
+    async function syncClock() {
+        if (!/^https?:/.test(location.protocol)) return;
+        try {
+            const t0 = Date.now();
+            const r = await fetch('/favicon.ico?clock=' + t0, { method: 'HEAD', cache: 'no-store' });
+            const d = Date.parse(r.headers.get('date') || ''); const t1 = Date.now();
+            if (d) { const off = d + 500 - (t0 + t1) / 2; SKEW = Math.abs(off) > 3000 ? off : 0; }
+        } catch (e) {}
+    }
+    const CONNECT_MS = 15000;          // not connected after this long -> dial again (every 2nd try only through the relay)
+    const tries = new Map();           // uid -> failed attempts in a row
 
     let root = null, room = '', me = null, myName = '', myRole = '', isHost = false, opts = {};
     let roomRef = null, joinedAt = 0;
@@ -27,8 +43,9 @@
     let att = { away: 0, gaze: '', gazeAt: 0, consent: false }, awayNoted = {};
     let peers = new Map();            // uid -> { uid, pc, sid, init, stream, pendingIce[], remoteSet }
     let docs = new Map();             // uid -> presence doc data
-    let unsubs = [], timers = [], joined = false, pinned = '';
+    let unsubs = [], timers = [], joined = false, pinned = '', moreOpen = false;
     let audioCtx = null, analysers = new Map(), sigQueue = Promise.resolve(), handled = {};
+    let earlyIce = new Map();         // "uid|sid" -> ICE candidates that came before the offer (they used to be lost)
     let chatOpen = false, peopleOpen = false, unread = 0, chatMsgs = [];
     let prejoinStream = null;
     let sess = { sid: '', base: 0, seg: 0, first: 0 };   // lesson session this person is being timed in
@@ -36,7 +53,28 @@
     let rec = null;                   // teacher's local recording state
 
     const $ = (sel) => root && root.querySelector(sel);
-    const iceServers = () => (CFG.STUN_SERVERS || []).concat(CFG.TURN_SERVERS || []);
+    // STUN (free) + TURN relay. The relay is needed when someone is on mobile internet or a strict network:
+    // without it their camera/sound never arrive. Credentials are fetched from our AI helper (they are short-lived).
+    let ICE = [];
+    const iceServers = () => (CFG.STUN_SERVERS || []).concat(CFG.TURN_SERVERS || [], ICE);
+    async function loadIce() {
+        if (ICE.length || !me) return;
+        // 1) the site itself (thestarth.com/api/ice — Cloudflare Pages function, cannot be blocked separately),
+        // 2) our own address ai.thestarth.com, 3) *.workers.dev (blocked by some internet providers)
+        const urls = ['/api/ice', window.MOCK_AI_URL].concat(window.MOCK_AI_FALLBACK || []).filter((u, i, a) => u && a.indexOf(u) === i);
+        let token = '';
+        try { token = await me.getIdToken(); } catch (e) { return; }
+        for (const url of urls) {
+            try {
+                const ctl = typeof AbortController !== 'undefined' ? new AbortController() : null; const t = setTimeout(() => ctl && ctl.abort(), 5000);
+                const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ mode: 'ice' }), signal: ctl ? ctl.signal : undefined });
+                clearTimeout(t);
+                const j = await r.json().catch(() => ({}));
+                if (r.ok && Array.isArray(j.iceServers) && j.iceServers.length) { ICE = j.iceServers; return; }
+                // not set up there / switched off — try the next address
+            } catch (e) { /* network blocked — try the next address; without a relay STUN still works on most home Wi-Fi */ }
+        }
+    }
 
     // ── media ───────────────────────────────────────────────────────────────
     async function getMedia() {
@@ -71,22 +109,31 @@
 
     // ── signalling ──────────────────────────────────────────────────────────
     function send(to, sid, type, data) {
-        return roomRef.collection('signals').add({ from: me.uid, to, sid, type, data: JSON.stringify(data), ts: Date.now() }).catch((e) => console.warn('signal', e));
+        return roomRef.collection('signals').add({ from: me.uid, to, sid, type, data: JSON.stringify(data), ts: now() }).catch((e) => console.warn('signal', e));
     }
     function closePeer(uid) {
         const P = peers.get(uid); if (!P) return;
+        clearTimeout(P.connTimer); clearTimeout(P.failTimer);
         try { P.pc.ontrack = P.pc.onicecandidate = P.pc.onconnectionstatechange = null; P.pc.close(); } catch (e) {}
         peers.delete(uid); removeAnalyser(uid); renderStage();
     }
     function makePeer(uid, sid, init) {
-        const pc = new RTCPeerConnection({ iceServers: iceServers() });
-        const P = { uid, pc, sid, init, stream: new MediaStream(), pendingIce: [], remoteSet: false, failTimer: null };
+        const n = tries.get(uid) || 0, ice = iceServers();
+        const relay = init && n % 2 === 1 && ice.some((x) => /^turns?:/.test([].concat(x.urls || x.url || '')[0] || ''));
+        const pc = new RTCPeerConnection(relay ? { iceServers: ice, iceTransportPolicy: 'relay' } : { iceServers: ice });
+        const P = { uid, pc, sid, init, stream: new MediaStream(), pendingIce: [], remoteSet: false, failTimer: null, connTimer: null, born: Date.now() };
+        // stuck on "connecting" (lost handshake, blocked network): start over instead of waiting forever
+        P.connTimer = setTimeout(() => {
+            if (peers.get(uid) !== P || pc.connectionState === 'connected') return;
+            tries.set(uid, n + 1); closePeer(uid); reconcile();
+        }, CONNECT_MS + Math.min(n, 4) * 5000);
         peers.set(uid, P);
         pc.onicecandidate = (e) => { if (e.candidate) send(uid, P.sid, 'ice', e.candidate.toJSON ? e.candidate.toJSON() : e.candidate); };
         pc.ontrack = (e) => { if (!P.stream.getTracks().includes(e.track)) P.stream.addTrack(e.track); addAnalyser(uid, P.stream); renderStage(); };
         pc.onconnectionstatechange = () => {
             const st = pc.connectionState;
             clearTimeout(P.failTimer);
+            if (st === 'connected') { clearTimeout(P.connTimer); tries.delete(uid); }
             if (st === 'failed' || st === 'disconnected') {
                 // the lower uid re-dials; give a short disconnect a chance to heal first
                 P.failTimer = setTimeout(() => { if (peers.get(uid) === P && pc.connectionState !== 'connected') { closePeer(uid); reconcile(); } }, st === 'failed' ? 500 : 7000);
@@ -111,6 +158,7 @@
             let P = peers.get(uid);
             if (P && P.sid !== s.sid) { closePeer(uid); P = null; }
             if (!P) P = makePeer(uid, s.sid, false);
+            const early = earlyIce.get(uid + '|' + s.sid); if (early) { P.pendingIce.push(...early); earlyIce.delete(uid + '|' + s.sid); }
             await P.pc.setRemoteDescription(data); P.remoteSet = true;
             P.pc.getTransceivers().forEach((t) => { const k = t.receiver.track.kind; try { t.direction = 'sendrecv'; } catch (e) {} const tr = trackFor(k); if (tr) t.sender.replaceTrack(tr).catch(() => {}); });
             const ans = await P.pc.createAnswer(); await P.pc.setLocalDescription(ans);
@@ -119,6 +167,12 @@
             tuneBitrate();
         } else {
             const P = peers.get(uid);
+            if (s.type === 'ice' && me.uid > uid && (!P || P.sid !== s.sid)) {
+                // the caller's candidates can be written before its offer — keep them until the offer arrives
+                const k = uid + '|' + s.sid, a = earlyIce.get(k) || []; if (a.length < 60) a.push(data); earlyIce.set(k, a);
+                if (earlyIce.size > 40) earlyIce.delete(earlyIce.keys().next().value);
+                return;
+            }
             if (!P || P.sid !== s.sid) return;
             if (s.type === 'answer') { if (P.pc.signalingState === 'have-local-offer') { await P.pc.setRemoteDescription(data); P.remoteSet = true; P.pendingIce.splice(0).forEach((c) => P.pc.addIceCandidate(c).catch(() => {})); } }
             else if (s.type === 'ice') { if (P.remoteSet) P.pc.addIceCandidate(data).catch(() => {}); else P.pendingIce.push(data); }
@@ -130,14 +184,14 @@
             list.sort((a, b) => (a.d.ts || 0) - (b.d.ts || 0));
             list.forEach((x) => {
                 handled[x.id] = 1;
-                sigQueue = sigQueue.then(() => (Date.now() - (x.d.ts || 0) < 120000 ? onSignal(x.d) : null)).catch((e) => console.warn('signal handling', e)).then(() => x.ref.delete().catch(() => {}));
+                sigQueue = sigQueue.then(() => (now() - (x.d.ts || 0) < 120000 ? Promise.race([onSignal(x.d), new Promise((r) => setTimeout(r, 10000))]) : null)).catch((e) => console.warn('signal handling', e)).then(() => x.ref.delete().catch(() => {}));
             });
         }, (e) => console.warn('signals', e)));
     }
 
     // ── presence & peers ────────────────────────────────────────────────────
-    const online = (d) => d && Date.now() - (d.lastSeen || 0) < ONLINE_MS;
-    function myDoc() { return { name: myName, role: myRole, mic: micOn && !!local.audio, cam: sharing || (camOn && !!local.video), hand: handUp, sharing, rec: !!rec, lastSeen: Date.now(), joinedAt, away: att.away || 0, gaze: att.gaze || '', gazeAt: att.gazeAt || 0 }; }
+    const online = (d) => d && now() - (d.lastSeen || 0) < ONLINE_MS;
+    function myDoc() { return { name: myName, role: myRole, mic: micOn && !!local.audio, cam: sharing || (camOn && !!local.video), hand: handUp, sharing, rec: !!rec, lastSeen: now(), joinedAt, away: att.away || 0, gaze: att.gaze || '', gazeAt: att.gazeAt || 0 }; }
     function pushPresence() { if (!joined) return; roomRef.collection('peers').doc(me.uid).set(myDoc(), { merge: true }).catch(() => {}); }
     function reconcile() {
         docs.forEach((d, uid) => {
@@ -153,6 +207,7 @@
             reconcile();
         }, (e) => console.warn('peers', e)));
         timers.push(setInterval(() => { pushPresence(); reconcile(); }, HEARTBEAT_MS));
+        timers.push(setInterval(() => { let bad = false; docs.forEach((d, uid) => { if (uid !== me.uid && online(d)) { const P = peers.get(uid); if (!P || P.pc.connectionState !== 'connected') bad = true; } }); if (bad) renderStage(); }, 4000));
     }
 
     // ── teacher controls ────────────────────────────────────────────────────
@@ -235,13 +290,13 @@
     }
     const fmtMin = (ms) => { const s = Math.max(0, Math.floor(ms / 1000)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
     function tickAway() {
-        document.querySelectorAll('.ct-away[data-since]').forEach((e) => { const i = e.querySelector('i'); if (i) i.textContent = fmtMin(Date.now() - (+e.dataset.since || Date.now())); });
+        document.querySelectorAll('.ct-away[data-since]').forEach((e) => { const i = e.querySelector('i'); if (i) i.textContent = fmtMin(now() - (+e.dataset.since || now())); });
         if (!isHost) return;
         docs.forEach((d, uid) => {
             if (uid === me.uid || !online(d) || d.role === 'teacher' || d.role === 'admin') return;
             [['away', d.away, 25000, 'отвлёкся — открыл другую вкладку или окно'], ['gaze', d.gaze === 'off' ? d.gazeAt : 0, 20000, 'не смотрит в экран']].forEach(([k, since, lim, msg]) => {
                 const key = uid + k + since;
-                if (since && Date.now() - since >= lim && !awayNoted[key]) { awayNoted[key] = 1; toastMsg((d.name || '…') + ': ' + X(msg)); }
+                if (since && now() - since >= lim && !awayNoted[key]) { awayNoted[key] = 1; toastMsg((d.name || '…') + ': ' + X(msg)); }
             });
         });
     }
@@ -250,22 +305,36 @@
     let awayCand = 0;
     function attTick() {
         if (isHost || !joined) return;
-        if (awayNow()) { if (!awayCand) awayCand = Date.now(); if (!att.away && Date.now() - awayCand >= 5000) { att.away = awayCand; pushPresence(); } }
+        if (awayNow()) { if (!awayCand) awayCand = now(); if (!att.away && now() - awayCand >= 5000) { att.away = awayCand; pushPresence(); } }
         else { awayCand = 0; if (att.away) { att.away = 0; pushPresence(); } }
     }
     function startGaze() {
         if (isHost || !att.consent || !window.LessonAttention || !local.video) return;
-        window.LessonAttention.start(local.video, (st) => { att.gaze = st; att.gazeAt = st === 'off' ? Date.now() : 0; pushPresence(); }).then((okk) => { if (!okk) att.consent = false; });
+        window.LessonAttention.start(local.video, (st) => { att.gaze = st; att.gazeAt = st === 'off' ? now() : 0; pushPresence(); }).then((okk) => { if (!okk) att.consent = false; });
     }
+    // Full screen for one person's video / shared screen (phones: the native video player on iPhone)
+    const fsEl = () => document.fullscreenElement || document.webkitFullscreenElement || null;
+    function toggleFullscreen(el) {
+        if (fsEl()) { (document.exitFullscreen || document.webkitExitFullscreen || function () {}).call(document); return; }
+        const v = el.querySelector('video');
+        const req = el.requestFullscreen || el.webkitRequestFullscreen;
+        if (req) { const r = req.call(el); if (r && r.catch) r.catch(() => { if (v && v.webkitEnterFullscreen) v.webkitEnterFullscreen(); }); }
+        else if (v && v.webkitEnterFullscreen) v.webkitEnterFullscreen();
+    }
+    ['fullscreenchange', 'webkitfullscreenchange'].forEach((ev) => document.addEventListener(ev, () => {
+        if (!root) return;
+        root.querySelectorAll('.ct-fs').forEach((b) => { const on = fsEl() === b.closest('.ct'); b.innerHTML = ic(on ? 'minimize' : 'maximize'); b.title = X(on ? 'Выйти из полного экрана' : 'Во весь экран'); });
+    }));
     function tileHTML(uid, d, isMe) {
         const name = (d && d.name) || '…';
         return `<div class="ct ${isMe ? 'me' : ''}" data-uid="${esc(uid)}">
-            <video autoplay playsinline ${isMe ? 'muted' : ''}></video>
+            <video autoplay playsinline muted></video>${isMe ? '' : '<audio autoplay></audio>'}
             <div class="ct-av"><span>${esc(initials(name))}</span></div>
             <div class="ct-tags">${tagsHTML(d, isMe)}</div>
             <div class="ct-name">${d && d.mic === false ? ic('mic-off') : ''}<span>${esc(name)}${isMe ? ' (' + esc(X('вы')) + ')' : ''}</span></div>
             ${isHost && !isMe ? `<div class="ct-ctl"><button type="button" data-act="mic" title="${esc(X('Выкл. микрофон'))}">${ic('mic-off')}</button><button type="button" data-act="cam" title="${esc(X('Выкл. камеру'))}">${ic('video-off')}</button><button type="button" data-act="kick" class="danger" title="${esc(X('Удалить из урока'))}">${ic('logout')}</button></div>` : ''}
             <button class="ct-pin" type="button" title="${esc(X('Закрепить'))}" aria-label="${esc(X('Закрепить'))}">${ic('pin')}</button>
+            <button class="ct-fs" type="button" title="${esc(X('Во весь экран'))}" aria-label="${esc(X('Во весь экран'))}">${ic('maximize')}</button>
             <div class="ct-state" hidden></div></div>`;
     }
     function renderStage() {
@@ -280,16 +349,24 @@
         all.forEach(([uid, d, isMe]) => {
             if (!have.has(uid)) { const w = document.createElement('div'); w.innerHTML = tileHTML(uid, d, isMe).trim(); const el = w.firstChild; stage.appendChild(el);
                 el.querySelector('.ct-pin').onclick = (e) => { e.stopPropagation(); pinned = pinned === uid ? '' : uid; renderStage(); };
-                el.querySelectorAll('.ct-ctl button').forEach((cb) => cb.onclick = (e) => { e.stopPropagation(); const a = cb.dataset.act;
-                    if (a === 'mic') hostSet({ forceMute: { [uid]: Date.now() } }); else if (a === 'cam') hostSet({ forceCam: { [uid]: Date.now() } });
-                    else if (a === 'kick' && confirm(X('Удалить участника из урока?'))) hostSet({ kick: { [uid]: Date.now() } }); }); el.ondblclick = () => { pinned = pinned === uid ? '' : uid; renderStage(); }; }
+                el.querySelector('.ct-fs').onclick = (e) => { e.stopPropagation(); toggleFullscreen(el); };
+                // iPhone pauses inline videos on its own (another video started, the page was scrolled, a tap) — resume
+                const tv = el.querySelector('video'); tv.addEventListener('pause', () => { if (joined && tv.srcObject && !document.hidden) setTimeout(() => { const pp = tv.play(); if (pp && pp.catch) pp.catch(() => {}); }, 150); });
+                el.querySelectorAll('.ct-ctl button').forEach((cb) => cb.onclick = async (e) => { e.stopPropagation(); const a = cb.dataset.act;
+                    if (a === 'mic') hostSet({ forceMute: { [uid]: now() } }); else if (a === 'cam') hostSet({ forceCam: { [uid]: now() } });
+                    else if (a === 'kick' && await StarthUI.confirm(X('Удалить участника из урока?'))) hostSet({ kick: { [uid]: now() } }); }); el.ondblclick = () => { pinned = pinned === uid ? '' : uid; renderStage(); }; }
         });
         stage.querySelectorAll('.ct').forEach((el) => { if (!all.some((x) => x[0] === el.dataset.uid)) el.remove(); });
         all.forEach(([uid, d, isMe]) => {
             const el = stage.querySelector('.ct[data-uid="' + uid + '"]'); if (!el) return;
             const v = el.querySelector('video');
             const stream = isMe ? (sharing && local.screenStream ? local.screenStream : local.stream) : (peers.get(uid) || {}).stream;
-            if (stream && v.srcObject !== stream) { v.srcObject = stream; const pr = v.play(); if (pr && pr.catch) pr.catch(() => { el.querySelector('.ct-state').hidden = false; el.querySelector('.ct-state').textContent = ''; }); }
+            // Video is always muted and the sound goes through a separate <audio>: iPhone Safari plays only ONE video with sound
+            // at a time and pauses the others — with muted videos everybody's picture plays at once.
+            if (stream && v.srcObject !== stream) { v.muted = true; v.srcObject = stream; const pr = v.play(); if (pr && pr.catch) pr.catch(() => { el.querySelector('.ct-state').hidden = false; el.querySelector('.ct-state').textContent = ''; }); }
+            const au = el.querySelector('audio');
+            if (au && stream && au.srcObject !== stream) { au.srcObject = stream; const pa = au.play(); if (pa && pa.catch) pa.catch(() => { el.querySelector('.ct-state').hidden = false; el.querySelector('.ct-state').textContent = ''; }); }
+            if (v.paused && v.srcObject) { const pv = v.play(); if (pv && pv.catch) pv.catch(() => {}); }
             const showVideo = isMe ? (sharing || (camOn && !!local.video)) : (d.cam || d.sharing);
             el.classList.toggle('no-video', !showVideo);
             el.classList.toggle('is-share', !!d.sharing);
@@ -297,38 +374,58 @@
             el.querySelector('.ct-tags').innerHTML = tagsHTML(d, isMe);
             el.querySelector('.ct-name').innerHTML = (d.mic === false ? ic('mic-off') : '') + `<span>${esc(d.name || '…')}${isMe ? ' (' + esc(X('вы')) + ')' : ''}</span>`;
             const st = el.querySelector('.ct-state'); const P = peers.get(uid);
-            if (!isMe && P && P.pc.connectionState !== 'connected' && P.pc.connectionState !== 'completed') { st.hidden = false; st.textContent = X('Подключение…'); }
-            else if (!isMe && st.textContent === X('Подключение…')) { st.hidden = true; st.textContent = ''; }
+            if (!isMe && (!P || (P.pc.connectionState !== 'connected' && P.pc.connectionState !== 'completed'))) {
+                st.hidden = false;
+                // after a while show what is going on — a screenshot of this line tells us why the video does not connect
+                if (!P && !st.dataset.since) st.dataset.since = String(Date.now());
+                const long = Date.now() - (P ? (P.born || Date.now()) : +st.dataset.since) > 12000;
+                st.innerHTML = esc(X('Подключение…')) + (long ? '<small class="ct-diag">' + esc(X('Сервер-посредник')) + ': ' + (ICE.length ? X('есть') : X('нет')) +
+                    ' · ' + esc(X('часы')) + ': ' + Math.round(SKEW / 1000) + ' ' + esc(X('с')) + ' · ' + esc(P ? (P.pc.iceConnectionState || '') : X('нет соединения')) + ' · ' + esc(X('попытка')) + ' ' + ((tries.get(uid) || 0) + 1) + '</small>' : '');
+                st.dataset.conn = '1';
+            }
+            else if (!isMe && st.dataset.conn) { st.hidden = true; st.textContent = ''; delete st.dataset.conn; delete st.dataset.since; }
         });
         stage.dataset.count = String(all.length); stage.classList.toggle('has-focus', !!focus);
-        const warn = $('#call-warn'); if (warn) { const big = all.length > (CFG.MAX_COMFORTABLE || 6); warn.hidden = !big; if (big) warn.innerHTML = X('В комнате больше 6 человек — видео может тормозить. Для больших групп включите запасной режим.'); }
+        const warn = $('#call-warn'); if (warn) { const big = all.length > (CFG.MAX_COMFORTABLE || 6); warn.hidden = !big; if (big) warn.innerHTML = X('В комнате больше 6 человек — видео может тормозить. Попросите учеников выключить камеры, кроме говорящего.'); }
         const waitEl = $('#call-wait');
         if (waitEl) { const alone = !isHost && !all.some((x) => !x[2] && x[1].role === 'teacher'); waitEl.hidden = !alone; if (alone) waitEl.textContent = X('Ждём преподавателя — урок начнётся, как только он зайдёт.'); }
         const recEl = $('#call-rec');
         if (recEl) { const anyRec = all.some((x) => x[1].rec); recEl.hidden = !anyRec; if (anyRec) recEl.innerHTML = '<i></i>' + esc(X('Идёт запись урока')); }
         renderPeople();
     }
-    function enableAudioPlayback() { if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume(); root.querySelectorAll('video').forEach((v) => { const p = v.play(); if (p && p.catch) p.catch(() => {}); }); root.querySelectorAll('.ct-state').forEach((s) => { if (s.textContent === '') s.hidden = true; }); }
+    function enableAudioPlayback() { if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume(); root.querySelectorAll('video, audio').forEach((v) => { const p = v.play(); if (p && p.catch) p.catch(() => {}); }); root.querySelectorAll('.ct-state').forEach((s) => { if (s.textContent === '') s.hidden = true; }); }
 
     function renderBar() {
         const bar = $('#call-bar'); if (!bar) return;
         const b = (id, icon, label, on, extra) => `<button type="button" class="cb ${on ? 'on' : ''} ${extra || ''}" id="${id}" title="${esc(X(label))}" aria-pressed="${on ? 'true' : 'false'}">${ic(icon)}<span>${esc(X(label))}</span></button>`;
+        // Phone: the main buttons in one row, the rest behind «Ещё» (cb-sec). Computer: everything in one row.
+        bar.classList.toggle('more-open', moreOpen);
         bar.innerHTML =
+            '<div class="cb-row">' +
             b('cb-mic', micOn && local.audio ? 'mic' : 'mic-off', micOn && local.audio ? 'Микрофон' : 'Микрофон выкл.', !(micOn && local.audio), 'danger-off') +
             b('cb-cam', camOn && local.video ? 'video' : 'video-off', camOn && local.video ? 'Камера' : 'Камера выкл.', !(camOn && local.video), 'danger-off') +
-            b('cb-share', 'monitor', sharing ? 'Остановить показ' : 'Показать экран', sharing) +
+            b('cb-share', 'monitor', sharing ? 'Остановить показ' : 'Показать экран', sharing, 'cb-sec') +
             b('cb-hand', 'hand', handUp ? 'Опустить руку' : 'Поднять руку', handUp) +
             `<button type="button" class="cb ${chatOpen ? 'on' : ''}" id="cb-chat" title="${esc(X('Чат'))}">${ic('message')}<span>${esc(X('Чат'))}</span>${unread ? `<i class="cb-badge">${unread > 9 ? '9+' : unread}</i>` : ''}</button>` +
-            b('cb-people', 'users', 'Участники', peopleOpen) +
-            (isHost ? b('cb-muteall', 'mic-off', 'Выключить всем микрофон', false) : '') +
-            (isHost && window.MediaRecorder ? b('cb-rec', 'record', rec ? 'Остановить запись' : 'Запись', !!rec, 'rec') : '') +
-            (myRole === 'teacher' ? `<button type="button" class="cb endlesson" id="cb-end" title="${esc(X('Закончить урок для всех'))}">${ic('x')}<span>${esc(X('Закончить урок'))}</span></button>` : '') +
-            `<button type="button" class="cb leave" id="cb-leave">${ic('logout')}<span>${esc(X(myRole === 'teacher' ? 'Выйти (урок идёт)' : 'Выйти'))}</span></button>`;
+            b('cb-people', 'users', 'Участники', peopleOpen, 'cb-sec') +
+            (window.StarthLessonDrawer ? b('cb-msg', 'send', 'Сообщения', StarthLessonDrawer.current() === 'msg', 'cb-sec') + b('cb-ai', 'sparkles', 'ИИ-учитель', StarthLessonDrawer.current() === 'ai', 'cb-sec') : '') +
+            (isHost ? b('cb-muteall', 'mic-off', 'Выключить всем микрофон', false, 'cb-sec') : '') +
+            (isHost && window.MediaRecorder ? b('cb-rec', 'record', rec ? 'Остановить запись' : 'Запись', !!rec, 'rec cb-sec') : '') +
+            b('cb-more', 'more', moreOpen ? 'Скрыть' : 'Ещё', moreOpen, 'cb-more') +
+            '<i class="cb-break" aria-hidden="true"></i>' +
+            (myRole === 'teacher' ? `<button type="button" class="cb endlesson cb-sec" id="cb-end" title="${esc(X('Закончить урок для всех'))}">${ic('x')}<span>${esc(X('Закончить урок'))}</span></button>` : '') +
+            `<button type="button" class="cb leave" id="cb-leave">${ic('logout')}<span>${esc(X(myRole === 'teacher' ? 'Выйти (урок идёт)' : 'Выйти'))}</span></button>` +
+            '</div>';
         const on = (id, fn) => { const e = $('#' + id); if (e) e.onclick = fn; };
         on('cb-mic', () => setMic(!(micOn && local.audio))); on('cb-cam', () => setCam(!(camOn && local.video)));
         on('cb-share', toggleShare); on('cb-hand', () => { handUp = !handUp; pushPresence(); renderBar(); renderStage(); });
         on('cb-chat', () => { chatOpen = !chatOpen; peopleOpen = false; if (chatOpen) unread = 0; renderSide(); renderBar(); }); on('cb-people', () => { peopleOpen = !peopleOpen; chatOpen = false; renderSide(); renderBar(); });
-        on('cb-muteall', () => hostSet({ muteAllAt: Date.now() })); on('cb-rec', () => (rec ? stopRec() : startRec())); on('cb-leave', () => leave()); on('cb-end', endLesson);
+        on('cb-muteall', () => hostSet({ muteAllAt: now() })); on('cb-rec', () => (rec ? stopRec() : startRec()));
+        on('cb-leave', async () => { if (await StarthUI.confirm(X('Выйти из урока? Видео и микрофон отключатся.'))) leave(); });
+        on('cb-end', endLesson);
+        on('cb-more', () => { moreOpen = !moreOpen; renderBar(); });
+        on('cb-msg', () => { moreOpen = false; StarthLessonDrawer.toggle('msg'); renderBar(); }); on('cb-ai', () => { moreOpen = false; StarthLessonDrawer.toggle('ai'); renderBar(); });
+        if (window.StarthLessonDrawer) StarthLessonDrawer.sync();
     }
     function renderSide() {
         const side = $('#call-side'); if (!side) return;
@@ -337,14 +434,14 @@
             side.innerHTML = `<div class="cs-head"><strong>${esc(X('Чат'))}</strong><button type="button" class="cs-x" aria-label="${esc(X('Закрыть'))}">${ic('x')}</button></div>
                 <div class="cs-list" id="cs-list"></div>
                 <form class="cs-form" id="cs-form"><input type="text" id="cs-input" maxlength="500" autocomplete="off" placeholder="${esc(X('Сообщение…'))}"><button type="submit" class="cs-send" aria-label="${esc(X('Отправить'))}">${ic('send')}</button></form>`;
-            $('#cs-form').onsubmit = (e) => { e.preventDefault(); const i = $('#cs-input'); const t = i.value.trim(); if (!t) return; i.value = ''; roomRef.collection('chat').add({ uid: me.uid, name: myName, text: t.slice(0, 500), ts: Date.now() }).catch(() => {}); };
+            $('#cs-form').onsubmit = (e) => { e.preventDefault(); const i = $('#cs-input'); const t = i.value.trim(); if (!t) return; i.value = ''; roomRef.collection('chat').add({ uid: me.uid, name: myName, text: t.slice(0, 500), ts: now() }).catch(() => {}); };
             renderChat();
         } else if (peopleOpen) { side.innerHTML = `<div class="cs-head"><strong>${esc(X('Участники'))}</strong><button type="button" class="cs-x" aria-label="${esc(X('Закрыть'))}">${ic('x')}</button></div><div class="cs-list" id="cs-people"></div>`; renderPeople(); }
         const x = side.querySelector('.cs-x'); if (x) x.onclick = () => { chatOpen = peopleOpen = false; renderSide(); renderBar(); };
     }
     // a board coordinate in a message ("доска:D5") becomes a button that shows the spot on the whiteboard
     const linkCoords = (h) => h.replace(/(?:доска|board|doska)[:\s]\s?([A-Pa-p](?:10|[1-9]))(?![0-9A-Za-z])/gi, (m, c) => `<button type="button" class="cm-coord" data-c="${c.toUpperCase()}">доска:${c.toUpperCase()}</button>`);
-    window.addEventListener('starth-board-say', (e) => { try { if (roomRef && me && e.detail && e.detail.text) roomRef.collection('chat').add({ uid: me.uid, name: myName, text: String(e.detail.text).slice(0, 500), ts: Date.now() }).catch(() => {}); } catch (er) {} });
+    window.addEventListener('starth-board-say', (e) => { try { if (roomRef && me && e.detail && e.detail.text) roomRef.collection('chat').add({ uid: me.uid, name: myName, text: String(e.detail.text).slice(0, 500), ts: now() }).catch(() => {}); } catch (er) {} });
     document.addEventListener('click', (e) => { const b = e.target.closest && e.target.closest('.cm-coord'); if (b && window.LessonBoard) window.LessonBoard.show(b.dataset.c); });
     function renderChat() {
         const l = $('#cs-list'); if (!l) return;
@@ -358,11 +455,11 @@
             ${d.hand ? `<span class="cp-ic">${ic('hand')}</span>` : ''}${awayHTML(d, isMe)}<span class="cp-ic ${d.mic === false ? 'off' : ''}">${ic(d.mic === false ? 'mic-off' : 'mic')}</span><span class="cp-ic ${d.cam ? '' : 'off'}">${ic(d.cam ? 'video' : 'video-off')}</span>
             ${isHost && !isMe ? `<button type="button" class="cp-btn" data-mute="${esc(uid)}">${esc(X('Выкл. микрофон'))}</button><button type="button" class="cp-btn" data-cam="${esc(uid)}">${esc(X('Выкл. камеру'))}</button><button type="button" class="cp-btn danger" data-kick="${esc(uid)}">${esc(X('Удалить'))}</button>` : ''}</div>`).join('') +
             (isHost ? `<div class="cp-foot"><button type="button" class="cp-btn" id="cp-lower">${esc(X('Опустить все руки'))}</button><button type="button" class="cp-btn" id="cp-camall">${esc(X('Выключить все камеры'))}</button></div>` : '');
-        l.querySelectorAll('[data-mute]').forEach((b) => b.onclick = () => hostSet({ ['forceMute']: Object.assign({}, { [b.dataset.mute]: Date.now() }) }));
-        l.querySelectorAll('[data-kick]').forEach((b) => b.onclick = () => { if (confirm(X('Удалить участника из урока?'))) hostSet({ kick: { [b.dataset.kick]: Date.now() } }); });
-        l.querySelectorAll('[data-cam]').forEach((b) => b.onclick = () => hostSet({ forceCam: { [b.dataset.cam]: Date.now() } }));
-        const lo = $('#cp-lower'); if (lo) lo.onclick = () => hostSet({ lowerHandsAt: Date.now() });
-        const ca = $('#cp-camall'); if (ca) ca.onclick = () => hostSet({ camAllAt: Date.now() });
+        l.querySelectorAll('[data-mute]').forEach((b) => b.onclick = () => hostSet({ ['forceMute']: Object.assign({}, { [b.dataset.mute]: now() }) }));
+        l.querySelectorAll('[data-kick]').forEach((b) => b.onclick = async () => { if (await StarthUI.confirm(X('Удалить участника из урока?'))) hostSet({ kick: { [b.dataset.kick]: now() } }); });
+        l.querySelectorAll('[data-cam]').forEach((b) => b.onclick = () => hostSet({ forceCam: { [b.dataset.cam]: now() } }));
+        const lo = $('#cp-lower'); if (lo) lo.onclick = () => hostSet({ lowerHandsAt: now() });
+        const ca = $('#cp-camall'); if (ca) ca.onclick = () => hostSet({ camAllAt: now() });
     }
 
     // ── actions ─────────────────────────────────────────────────────────────
@@ -402,16 +499,16 @@
     const fmtDur = (ms) => { const m = Math.max(0, Math.round(ms / 60000)); return m >= 60 ? Math.floor(m / 60) + ' ' + X('ч') + ' ' + String(m % 60).padStart(2, '0') + ' ' + X('мин') : m + ' ' + X('мин'); };
     const sessRef = () => db.collection('lessonSessions').doc(sess.sid);
     const timed = () => myRole === 'student' || myRole === 'teacher';
-    const spentMs = () => (sess.sid ? sess.base + (Date.now() - sess.seg) : 0);
+    const spentMs = () => (sess.sid ? sess.base + (now() - sess.seg) : 0);
     function writeAtt() {
         if (!sess.sid || !joined || !me || !timed()) return;
-        sessRef().collection('attendees').doc(me.uid).set({ uid: me.uid, name: myName, role: myRole, firstJoin: sess.first, lastSeen: Date.now(), totalMs: spentMs() }, { merge: true }).catch(() => {});
+        sessRef().collection('attendees').doc(me.uid).set({ uid: me.uid, name: myName, role: myRole, firstJoin: sess.first, lastSeen: now(), totalMs: spentMs() }, { merge: true }).catch(() => {});
     }
     async function trackStart(sid) {
         if (!sid || sess.sid === sid || !timed()) return;
-        sess = { sid, base: 0, seg: Date.now(), first: Date.now() };
+        sess = { sid, base: 0, seg: now(), first: now() };
         try { const d = await sessRef().collection('attendees').doc(me.uid).get(); if (d.exists) { sess.base = d.data().totalMs || 0; sess.first = d.data().firstJoin || sess.first; } } catch (e) {}
-        sess.seg = Date.now(); writeAtt();
+        sess.seg = now(); writeAtt();
     }
     // The teacher who enters the room opens (or continues) today's lesson session.
     async function openSession() {
@@ -419,30 +516,31 @@
         try {
             const rs = await roomRef.get(); const r = rs.exists ? rs.data() : {};
             if (r.activeSid) {
-                const sd = await db.collection('lessonSessions').doc(r.activeSid).get();
-                const x = sd.exists ? sd.data() : null;
-                if (x && x.teacherUid === me.uid && !x.endedAt && Date.now() - (x.lastSeen || 0) < 3 * 3600 * 1000) { sessStart = x.startedAt; return trackStart(r.activeSid); }
+                // the previous lesson may belong to another teacher (group handed over) — we may not read it; just start our own
+                const sd = await db.collection('lessonSessions').doc(r.activeSid).get().catch(() => null);
+                const x = sd && sd.exists ? sd.data() : null;
+                if (x && x.teacherUid === me.uid && !x.endedAt && now() - (x.lastSeen || 0) < 3 * 3600 * 1000) { sessStart = x.startedAt; return trackStart(r.activeSid); }
                 if (x && x.teacherUid === me.uid && !x.endedAt) await sd.ref.update({ endedAt: x.lastSeen || x.startedAt, status: 'ended', durationMs: Math.max(0, (x.lastSeen || x.startedAt) - x.startedAt) }).catch(() => {});
             }
             const ref = db.collection('lessonSessions').doc();
-            sessStart = Date.now();
-            await ref.set({ room, teacherUid: me.uid, teacherName: myName, groupId: opts.groupId || '', groupName: opts.groupName || '', startedAt: sessStart, lastSeen: sessStart, endedAt: 0, status: 'live', durationMs: 0, participants: {} });
+            sessStart = now();
+            await ref.set({ room, teacherUid: me.uid, teacherName: myName, curatorUid: (window.currentUserProfile || {}).curatorUid || '', groupId: opts.groupId || '', groupName: opts.groupName || '', startedAt: sessStart, lastSeen: sessStart, endedAt: 0, status: 'live', durationMs: 0, participants: {} });
             await roomRef.set({ activeSid: ref.id, sessionStart: sessStart }, { merge: true });
             await trackStart(ref.id);
         } catch (e) { console.warn('session', e); }
     }
     function sessionBeat() {
         writeAtt();
-        if (myRole === 'teacher' && sess.sid) sessRef().update({ lastSeen: Date.now() }).catch(() => {});
+        if (myRole === 'teacher' && sess.sid) sessRef().update({ lastSeen: now() }).catch(() => {});
     }
     async function endLesson() {
         if (myRole !== 'teacher' || !joined) return;
-        if (!confirm(X('Закончить урок для всех? Все участники выйдут, доска и чат будут очищены.'))) return;
+        if (!await StarthUI.confirm(X('Закончить урок для всех? Все участники выйдут, доска и чат будут очищены.'))) return;
         ending = true;
         const card = (h, p) => { if (root) root.innerHTML = `<div class="call"><div class="call-pre"><div class="call-card"><h3>${esc(h)}</h3><p>${esc(p)}</p></div></div></div>`; };
         try {
             if (opts.onBeforeEnd) await opts.onBeforeEnd();
-            const sid = sess.sid, endedAt = Date.now(), rr = roomRef;
+            const sid = sess.sid, endedAt = now(), rr = roomRef;
             writeAtt();
             await rr.set({ endedAt, activeSid: '' }, { merge: true });
             try { const cs = await rr.collection('chat').get(); const b = db.batch(); cs.forEach((d) => b.delete(d.ref)); await b.commit(); } catch (e) {}
@@ -461,7 +559,7 @@
                 <p>${esc(hm(startedAt))} – ${esc(hm(endedAt))} · ${esc(fmtDur(endedAt - startedAt))}</p>
                 <div class="end-list">${rows}</div><p class="call-hint">${esc(X('Итоги отправлены администратору.'))}</p>
                 <button class="btn-primary" type="button" id="end-back">${esc(X('К списку уроков'))}</button></div></div></div>`;
-            const bk = $('#end-back'); if (bk) bk.onclick = () => { location.href = 'video-lesson.html'; };
+            const bk = $('#end-back'); if (bk) bk.onclick = () => { location.href = 'video-lesson'; };
             if (opts.onEnded) opts.onEnded();
         } catch (e) { console.warn(e); card(X('Не удалось завершить урок: '), e.message); }
         ending = false;
@@ -504,9 +602,9 @@
             c.fillStyle = '#fff'; c.fillText(name, x + 16, y + ch - 16);
         });
     }
-    function startRec() {
+    async function startRec() {
         if (rec || !window.MediaRecorder || !isHost) return;
-        if (!confirm(X('Начать запись урока? Все участники увидят отметку «Идёт запись». Файл сохранится на вашем устройстве.'))) return;
+        if (!await StarthUI.confirm(X('Начать запись урока? Все участники увидят отметку «Идёт запись». Файл сохранится на вашем устройстве.'))) return;
         try {
             const cv = document.createElement('canvas'); cv.width = 1280; cv.height = 720;
             const AC = window.AudioContext || window.webkitAudioContext;
@@ -514,7 +612,7 @@
             const out = cv.captureStream(15); dest.stream.getAudioTracks().forEach((t) => out.addTrack(t));
             const mime = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4'].find((m) => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(m)) || '';
             const mr = new MediaRecorder(out, mime ? { mimeType: mime, videoBitsPerSecond: 900000, audioBitsPerSecond: 96000 } : {});
-            rec = { cv, ctx: cv.getContext('2d'), actx, dest, srcs: new Map(), mr, chunks: [], mime: mr.mimeType || mime || 'video/webm', t0: Date.now() };
+            rec = { cv, ctx: cv.getContext('2d'), actx, dest, srcs: new Map(), mr, chunks: [], mime: mr.mimeType || mime || 'video/webm', t0: now() };
             const chunks = rec.chunks;
             mr.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
             mr.start(5000);
@@ -552,17 +650,18 @@
         writeAtt();
         if (window.LessonAttention) window.LessonAttention.stop(); document.removeEventListener('visibilitychange', attTick); att = { away: 0, gaze: '', gazeAt: 0, consent: att.consent }; awayNoted = {};
         unsubs.forEach((u) => { try { u(); } catch (e) {} }); unsubs = []; timers.forEach(clearInterval); timers = [];
-        peers.forEach((P) => { try { P.pc.close(); } catch (e) {} }); peers = new Map(); docs = new Map(); analysers = new Map(); handled = {};
+        peers.forEach((P) => { try { P.pc.close(); } catch (e) {} }); peers = new Map(); docs = new Map(); analysers = new Map(); handled = {}; earlyIce = new Map();
         if (joined && roomRef && me) roomRef.collection('peers').doc(me.uid).delete().catch(() => {});
         stopLocal(); if (audioCtx) { try { audioCtx.close(); } catch (e) {} audioCtx = null; }
-        joined = false; sess = { sid: '', base: 0, seg: 0, first: 0 }; chatOpen = peopleOpen = false; unread = 0; chatMsgs = []; pinned = ''; sharing = false; handUp = false;
+        if (window.StarthLessonDrawer) StarthLessonDrawer.close();
+        joined = false; moreOpen = false; document.documentElement.classList.remove('in-call'); sess = { sid: '', base: 0, seg: 0, first: 0 }; chatOpen = peopleOpen = false; unread = 0; chatMsgs = []; pinned = ''; sharing = false; handUp = false;
     }
     function leave(msg, final) {
         if (window.StarthPresence) StarthPresence.setLesson(false);
         cleanup();
         if (root) {
             root.innerHTML = `<div class="call"><div class="call-pre"><div class="call-card"><h3>${esc(final ? X('Урок завершён') : X('Вы вышли из урока'))}</h3>${msg ? `<p>${esc(msg)}</p>` : ''}${final ? `<button class="btn-primary" type="button" id="call-rejoin">${esc(X('К списку уроков'))}</button>` : `<button class="btn-primary" type="button" id="call-rejoin">${esc(X('Войти снова'))}</button>`}</div></div></div>`;
-            $('#call-rejoin').onclick = () => (final ? (location.href = 'video-lesson.html') : start(room, root, opts));
+            $('#call-rejoin').onclick = () => (final ? (location.href = 'video-lesson') : start(room, root, opts));
         }
         if (final && opts.onEnded) opts.onEnded();
         if (opts.onLeave) opts.onLeave();
@@ -578,8 +677,7 @@
             <div class="call-pre-toggles"><button type="button" class="cb" id="pre-mic">${ic('mic')}<span>${esc(X('Микрофон'))}</span></button><button type="button" class="cb" id="pre-cam">${ic('video')}<span>${esc(X('Камера'))}</span></button></div>
             ${isT || myRole === 'admin' ? '' : `<label class="call-consent"><input type="checkbox" id="pre-att"><span>${esc(X('Разрешить показывать учителю, смотрю ли я в экран. Видео никуда не отправляется — анализ идёт на вашем устройстве.'))}</span></label><p class="call-consent-note">${esc(X('Учитель увидит отметку, если вы перейдёте на другую вкладку во время урока.'))}</p>`}
             <p class="call-hint" id="pre-hint">${esc(X('Проверяем камеру и микрофон…'))}</p>
-            <button class="btn-primary call-join" type="button" id="pre-join">${esc(X(isT ? 'Начать урок' : 'Войти в урок'))}</button>
-            <button class="call-alt" type="button" id="pre-alt">${esc(X('Не получается? Запасной режим'))}</button></div>`;
+            <button class="btn-primary call-join" type="button" id="pre-join">${esc(X(isT ? 'Начать урок' : 'Войти в урок'))}</button></div>`;
         const r = await getMedia(); prejoinStream = r.stream;
         const hint = $('#pre-hint'), v = $('#pre-video');
         if (r.stream) { v.srcObject = r.stream; local.stream = r.stream; local.audio = r.stream.getAudioTracks()[0] || null; local.video = r.stream.getVideoTracks()[0] || null; }
@@ -593,16 +691,16 @@
         $('#pre-cam').onclick = () => { if (local.video) { camOn = !camOn; local.video.enabled = camOn; syncPre(); } };
         $('#pre-join').onclick = () => { const ca = $('#pre-att'); att.consent = !!(ca && ca.checked); try { if (ca) localStorage.setItem('starthAttConsent', ca.checked ? '1' : '0'); } catch (e) {}
              if (local.video) local.video.enabled = true; if (local.audio) local.audio.enabled = micOn; join(); };
-        $('#pre-alt').onclick = () => { stopLocal(); if (opts.onFallback) opts.onFallback(); };
     }
     async function join() {
+        await Promise.all([loadIce(), syncClock()]);
         audioCtx = new (window.AudioContext || window.webkitAudioContext)(); if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
         if (!camOn && local.video) { local.video.stop(); if (local.stream) local.stream.removeTrack(local.video); local.video = null; }
-        joinedAt = Date.now(); joined = true; if (window.StarthPresence) StarthPresence.setLesson(true); $('#call-pre').hidden = true; $('#call-live').hidden = false;
+        joinedAt = now(); joined = true; document.documentElement.classList.add('in-call'); if (window.StarthPresence) StarthPresence.setLesson(true); $('#call-pre').hidden = true; $('#call-live').hidden = false;
         pinned = '';
         if (local.audio) local.audio.enabled = micOn;
         roomRef = db.collection('lessonCalls').doc(String(room).replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 100));
-        if (isHost) roomRef.set({ hostUid: me.uid, hostName: myName, updatedAt: Date.now() }, { merge: true }).catch(() => {});
+        if (isHost) roomRef.set({ hostUid: me.uid, hostName: myName, updatedAt: now() }, { merge: true }).catch(() => {});
         await roomRef.collection('peers').doc(me.uid).set(myDoc()).catch((e) => toastMsg(X('Не удалось подключиться: ') + e.message));
         renderBar(); renderStage(); listenPeers(); listenSignals(); listenRoom(); listenChat();
         timers.push(setInterval(tickSpeaking, 300));
@@ -611,25 +709,48 @@
         timers.push(setInterval(sessionBeat, 60000));
         openSession();
         root.addEventListener('click', enableAudioPlayback, { once: true });
-        window.addEventListener('beforeunload', onUnload);
+        window.removeEventListener('beforeunload', onUnload); window.addEventListener('beforeunload', onUnload);
     }
-    function onUnload() { if (joined && roomRef && me) { writeAtt(); if (myRole === 'teacher' && sess.sid) sessRef().update({ lastSeen: Date.now() }).catch(() => {}); roomRef.collection('peers').doc(me.uid).delete().catch(() => {}); } }
+    function onUnload() { if (joined && roomRef && me) { writeAtt(); if (myRole === 'teacher' && sess.sid) sessRef().update({ lastSeen: now() }).catch(() => {}); roomRef.collection('peers').doc(me.uid).delete().catch(() => {}); } }
 
     async function start(roomName, mount, o) {
         cleanup(); root = mount; room = roomName; opts = o || {};
-        if (typeof FIREBASE_READY === 'undefined' || !FIREBASE_READY || !window.RTCPeerConnection) { root.innerHTML = ''; if (opts.onFallback) opts.onFallback(); return; }
+        if (typeof FIREBASE_READY === 'undefined' || !FIREBASE_READY || !window.RTCPeerConnection) { root.innerHTML = '<div class="call-card"><h3>' + esc(X('Видеоурок не открылся')) + '</h3><p>' + esc(X('Обновите страницу. Если не помогло — откройте урок в Chrome или Safari последней версии.')) + '</p></div>'; return; }
         build();
         const user = await new Promise((res) => { if (auth.currentUser) return res(auth.currentUser); const u = auth.onAuthStateChanged((x) => { u(); res(x); }); });
         if (!user) {
-            $('#call-pre').innerHTML = `<div class="call-card"><h3>${esc(X('Войдите в аккаунт'))}</h3><p>${esc(X('Чтобы войти в урок, нужно войти в свой аккаунт TheStarth.'))}</p><a class="btn-primary" href="index.html#login">${esc(X('Войти'))}</a><button class="call-alt" type="button" id="pre-alt">${esc(X('Запасной режим (Jitsi, без входа)'))}</button></div>`;
-            $('#pre-alt').onclick = () => opts.onFallback && opts.onFallback(); return;
+            $('#call-pre').innerHTML = `<div class="call-card"><h3>${esc(X('Войдите в аккаунт'))}</h3><p>${esc(X('Чтобы войти в урок, нужно войти в свой аккаунт TheStarth.'))}</p><a class="btn-primary" href="dashboard?next=${encodeURIComponent(location.pathname + location.search)}">${esc(X('Войти'))}</a></div>`;
+            return;
         }
         me = user; let p = window.currentUserProfile || {};
         if (!p.nickname) { try { const d = await db.collection('users').doc(user.uid).get(); if (d.exists) p = d.data(); } catch (e) {} }
-        myName = [p.name, p.surname].filter(Boolean).join(' ') || p.nickname || 'Участник'; myRole = p.role || 'student'; isHost = myRole === 'teacher' || myRole === 'admin';
+        myName = [p.name, p.surname].filter(Boolean).join(' ') || p.nickname || 'Участник'; myRole = p.role || 'student';
+        if (myRole === 'curator') myRole = 'teacher';          // a TheStarth curator teaches like any teacher
+        if (myRole === 'partner' || myRole === 'partner_curator') {
+            // partner teacher / partner curator: hosts lessons like our teachers while the paid period lasts
+            if ((p.partnerUntil || 0) <= Date.now()) {
+                $('#call-pre').innerHTML = `<div class="call-card"><h3>${esc(X('Доступ к урокам закончился'))}</h3><p>${esc(X('Чтобы снова вести уроки на TheStarth, продлите доступ: напишите нам в Telegram @TheStarth.'))}</p><a class="btn-primary" href="dashboard">${esc(X('Личный кабинет'))}</a></div>`;
+                return;
+            }
+            myRole = 'teacher';
+        }
+        isHost = myRole === 'teacher' || myRole === 'admin';
         showPrejoin();
     }
     function stop() { cleanup(); window.removeEventListener('beforeunload', onUnload); if (root) root.innerHTML = ''; }
 
-    window.LessonCall = { start, stop, end: endLesson };
+    // While the lesson is on, other pages of the site (Messenger, Payment, Cabinet, menu…) open in a NEW tab,
+    // so a click on the menu no longer throws the person out of the lesson. «Назад» asks first.
+    document.addEventListener('click', async (e) => {
+        if (!joined || e.defaultPrevented || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;
+        const a = e.target.closest ? e.target.closest('a[href]') : null; if (!a || (root && root.contains(a))) return;
+        const href = a.getAttribute('href') || '';
+        if (!href || href.charAt(0) === '#' || /^(javascript|mailto|tel):/i.test(href) || a.target === '_blank' || a.hasAttribute('download')) return;
+        let url; try { url = new URL(a.href, location.href); } catch (err) { return; }
+        if (url.pathname === location.pathname && url.search === location.search) return;
+        e.preventDefault(); e.stopPropagation();
+        if (a.classList.contains('back-btn') || a.closest('.back-btn')) { if (!await StarthUI.confirm(X('Выйти из урока? Видео и микрофон отключатся.'))) return; if (history.length > 1) history.back(); else location.href = a.href; return; }
+        const w = window.open(url.href, '_blank'); if (w) { try { w.opener = null; } catch (err) {} }
+    }, true);
+    window.LessonCall = { start, stop, end: endLesson, isLive: () => joined };
 })();

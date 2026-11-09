@@ -10,5 +10,5 @@
 window.STARTH_CALL_CONFIG = {
     STUN_SERVERS: [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] }],
     TURN_SERVERS: [],
-    MAX_COMFORTABLE: 6          // above this many people a warning suggests the backup mode (Jitsi)
+    MAX_COMFORTABLE: 6          // above this many people a warning asks people to turn cameras off
 };

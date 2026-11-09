@@ -19,6 +19,12 @@ if (FIREBASE_READY) {
     firebase.initializeApp(firebaseConfig);
     auth = firebase.auth();
     db = firebase.firestore();
+    // Antivirus / company proxies on some laptops break Firestore's live connection (data and video lessons hang).
+    // Long polling is detected automatically and used only when the normal connection does not work.
+    // Inside Telegram (the bot's mini-app) the WebView often breaks Firestore's streaming connection: a sent message
+    // stayed «in the air» forever and never reached the other person. There we always use plain long polling.
+    const inTelegram = !!(window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData) || /tg-app/.test(location.pathname);
+    try { db.settings(inTelegram ? { experimentalForceLongPolling: true, merge: true } : { experimentalAutoDetectLongPolling: true, merge: true }); } catch (e) {}
 } else {
     console.warn('Firebase not configured yet — see firebase-backend/FIREBASE_SETUP.md. Accounts and admin panel will not work until it is.');
 }

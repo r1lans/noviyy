@@ -233,7 +233,7 @@
     }
     async function deleteMsg(id) {
         const c = chats.find((x) => x.id === openId), x = msgById(id); if (!c || !x || !canDelete(c, x)) return;
-        if (!confirm(tx('Удалить сообщение?'))) return;
+        if (!await StarthUI.confirm(tx('Удалить сообщение?'))) return;
         try {
             await db.collection('chats').doc(openId).collection('messages').doc(id).delete();
             const upd = {}; const rest = msgs.filter((m) => m.id !== id), prev = rest[rest.length - 1];
@@ -424,10 +424,10 @@
                 return `<div class="gm-mem"><span class="msg-av">${esc(initials(nm || nk))}</span><span class="gm-mt"><strong>${esc(nm || (nk ? '@' + nk : '…'))}${u === me.uid ? ` <em>(${esc(tx('вы'))})</em>` : ''}</strong><small>${nk ? '@' + esc(nk) : ''}</small></span>${roleTag(rl)}${u === c.createdBy ? `<span class="msg-role o">${esc(tx('Создатель'))}</span>` : ''}${mine && u !== me.uid ? `<button type="button" class="gm-rm" data-u="${esc(u)}" aria-label="${esc(tx('Удалить из группы'))}" title="${esc(tx('Удалить из группы'))}">${ic('x')}</button>` : ''}</div>`; }).join('');
             el.querySelector('#gmmAct').innerHTML = `${mine ? `<button type="button" class="btn btn-secondary gm-danger" id="gmDel">${esc(tx('Удалить группу'))}</button>` : `<button type="button" class="btn btn-secondary gm-danger" id="gmLeave">${esc(tx('Покинуть группу'))}</button>`}<button type="button" class="btn btn-primary" data-close>${esc(tx('Закрыть'))}</button>`;
             el.querySelectorAll('[data-close]').forEach((b) => b.onclick = m.close);
-            const ren = el.querySelector('#gmRen'); if (ren) ren.onclick = async () => { const n = (prompt(tx('Название группы'), c.title) || '').trim().slice(0, 60); if (n && n !== c.title) { try { await db.collection('chats').doc(c.id).update({ title: n }); c.title = n; paint(); const h = document.getElementById('msgHeadInfo'); if (h) h.innerHTML = headInfo(c); renderList(); } catch (e) { err(e); } } };
-            el.querySelectorAll('.gm-rm').forEach((b) => b.onclick = async () => { const u = b.dataset.u; if (!confirm(tx('Удалить из группы?'))) return; try { const members = c.members.filter((x) => x !== u); await db.collection('chats').doc(c.id).update({ members }); c.members = members; paint(); const h = document.getElementById('msgHeadInfo'); if (h) h.innerHTML = headInfo(c); } catch (e) { err(e); } });
-            const del = el.querySelector('#gmDel'); if (del) del.onclick = async () => { if (!confirm(tx('Удалить группу для всех?'))) return; try { await db.collection('chats').doc(c.id).delete(); m.close(); chats = chats.filter((x) => x.id !== c.id); openId = ''; renderMain(); renderList(); } catch (e) { err(e); } };
-            const lv = el.querySelector('#gmLeave'); if (lv) lv.onclick = async () => { if (!confirm(tx('Покинуть группу?'))) return; try { await db.collection('chats').doc(c.id).update({ members: c.members.filter((x) => x !== me.uid) }); m.close(); chats = chats.filter((x) => x.id !== c.id); openId = ''; renderMain(); renderList(); } catch (e) { err(e); } };
+            const ren = el.querySelector('#gmRen'); if (ren) ren.onclick = async () => { const n = (await StarthUI.prompt(tx('Название группы'), c.title) || '').trim().slice(0, 60); if (n && n !== c.title) { try { await db.collection('chats').doc(c.id).update({ title: n }); c.title = n; paint(); const h = document.getElementById('msgHeadInfo'); if (h) h.innerHTML = headInfo(c); renderList(); } catch (e) { err(e); } } };
+            el.querySelectorAll('.gm-rm').forEach((b) => b.onclick = async () => { const u = b.dataset.u; if (!await StarthUI.confirm(tx('Удалить из группы?'))) return; try { const members = c.members.filter((x) => x !== u); await db.collection('chats').doc(c.id).update({ members }); c.members = members; paint(); const h = document.getElementById('msgHeadInfo'); if (h) h.innerHTML = headInfo(c); } catch (e) { err(e); } });
+            const del = el.querySelector('#gmDel'); if (del) del.onclick = async () => { if (!await StarthUI.confirm(tx('Удалить группу для всех?'))) return; try { await db.collection('chats').doc(c.id).delete(); m.close(); chats = chats.filter((x) => x.id !== c.id); openId = ''; renderMain(); renderList(); } catch (e) { err(e); } };
+            const lv = el.querySelector('#gmLeave'); if (lv) lv.onclick = async () => { if (!await StarthUI.confirm(tx('Покинуть группу?'))) return; try { await db.collection('chats').doc(c.id).update({ members: c.members.filter((x) => x !== me.uid) }); m.close(); chats = chats.filter((x) => x.id !== c.id); openId = ''; renderMain(); renderList(); } catch (e) { err(e); } };
         };
         const err = (e) => { el.querySelector('#gmmErr').textContent = tx('Не удалось: ') + (e && e.message || e); };
         paint(); await load(); paint();
@@ -466,7 +466,7 @@
             box = document.getElementById('messengerSection'); if (!box) return;
             unsubs.forEach((u) => { try { u(); } catch (e) {} }); unsubs = []; if (msgUnsub) { msgUnsub(); msgUnsub = null; }
             Object.keys(liveUn).forEach((k) => { try { liveUn[k](); } catch (e) {} }); liveUn = {}; liveDir = {}; presDoc = {};
-            me = user; profile = profile || {}; myNick = profile.nickname || ''; myRole = profile.role === 'teacher' ? 'teacher' : 'student';
+            me = user; profile = profile || {}; myNick = profile.nickname || ''; myRole = ['teacher', 'partner', 'curator', 'partner_curator'].indexOf(profile.role) !== -1 ? 'teacher' : 'student';
             myName = [profile.name, profile.surname].filter(Boolean).join(' ') || (myNick ? '@' + myNick : '');
             if (!myNick) { box.innerHTML = box.dataset.page === '1' ? '<div class="tc-empty" style="padding:2rem;text-align:center;">Для мессенджера нужен никнейм. Он указывается при регистрации.</div>' : ''; return; }
             chats = []; openId = ''; msgs = []; firstSnap = true; mobileChat = false;

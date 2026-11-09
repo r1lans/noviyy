@@ -102,7 +102,7 @@ function renderReviews() {
         if (i >= 6 && !window.__reviewsExpanded) card.style.display = 'none';
         card.dataset.reviewIndex = i;
         card.innerHTML = `
-            <div class="stars" aria-label="${t('reviews.rating_label').replace('{n}', rating)}">${'★'.repeat(rating)}<span style="opacity:.28">${'★'.repeat(5 - rating)}</span></div>
+            <div class="stars" aria-label="${t('reviews.rating_label').replace('{n}', rating)}">${'<svg width="1em" height="1em" viewBox="0 0 24 24" aria-hidden="true" style="vertical-align:-0.12em"><path fill="currentColor" d="m12 3 2.7 5.9 6.3.6-4.8 4.2 1.4 6.3L12 16.9 6.4 20l1.4-6.3-4.8-4.2 6.3-.6z"/></svg>'.repeat(rating)}<span style="opacity:.28">${'<svg width="1em" height="1em" viewBox="0 0 24 24" aria-hidden="true" style="vertical-align:-0.12em"><path fill="currentColor" d="m12 3 2.7 5.9 6.3.6-4.8 4.2 1.4 6.3L12 16.9 6.4 20l1.4-6.3-4.8-4.2 6.3-.6z"/></svg>'.repeat(5 - rating)}</span></div>
             <p style="margin-bottom: 1.25rem;">${escapeHtml(pickText(r, 'text'))}</p>
             <div class="review-author">
                 <div class="review-avatar">${escapeHtml((name[0] || '?').toUpperCase())}</div>
@@ -170,7 +170,8 @@ async function loadSiteData() {
 
         // Accent color override. In dark mode the same colour is lightened so
         // it doesn't turn into a dark-on-dark smudge.
-        if (settings.accent_color) {
+        // the stock colour saved again is not an override (else the dark theme lost its bright gold)
+        if (settings.accent_color && String(settings.accent_color).trim().toLowerCase() !== '#8f5a0c') {
             const st = document.createElement('style');
             st.id = 'custom-accent';
             st.textContent =
@@ -234,6 +235,12 @@ async function submitPublicReview() {
     if (typeof FIREBASE_READY === 'undefined' || !FIREBASE_READY) {
         statusEl.textContent = t('review.not_ready');
         statusEl.style.color = 'var(--accent-warm)';
+        return;
+    }
+    if (!auth || !auth.currentUser) {
+        statusEl.textContent = t('review.login');
+        statusEl.style.color = 'var(--accent-warm)';
+        if (typeof authModal !== 'undefined' && authModal) setTimeout(() => { closeReviewModal(); authModal.style.display = 'block'; }, 1200);
         return;
     }
     try {
@@ -467,7 +474,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return Array.from(set).slice(0, 80);
     };
     window.starthDirEntry = function (uid, p) {
-        return { uid, name: p.name || '', surname: p.surname || '', nickname: p.nickname || '', role: p.role === 'teacher' ? 'teacher' : 'student', keys: window.starthDirKeys(p) };
+        return { uid, name: p.name || '', surname: p.surname || '', nickname: p.nickname || '', role: ['teacher', 'partner', 'curator', 'partner_curator'].indexOf(p.role) !== -1 ? 'teacher' : 'student', keys: window.starthDirKeys(p) };
     };
     async function syncDirectory(user, profile) {
         if (!user || !profile || !profile.nickname) return;
@@ -481,7 +488,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function updateAuthUI(user) {
         window.currentAuthUser = user;
-        const authLinks = document.querySelectorAll('.nav-links a[href="dashboard.html"], .nav-links a[href="#"], .nav-links a.auth-nav-link');
+        const authLinks = document.querySelectorAll('.nav-links a[href="dashboard"], .nav-links a[href="#"], .nav-links a.auth-nav-link');
         authLinks.forEach(link => {
             if (link.classList.contains('lang-btn')) return;
             // Recognise the button by attribute, not by its (translated) text
@@ -505,10 +512,10 @@ document.addEventListener('DOMContentLoaded', () => {
             } else {
                 const profile = window.currentUserProfile || {};
                 const fullName = (profile.name || '').trim() || user.email || t('nav.profile');
-                const roleLabel = profile.role === 'teacher' ? t('role.teacher') : t('role.student');
+                const roleLabel = ['teacher', 'partner', 'curator', 'partner_curator'].indexOf(profile.role) !== -1 ? t('role.teacher') : t('role.student');
                 // Убираем data-i18n, чтобы смена языка не затирала имя пользователя
                 link.removeAttribute('data-i18n');
-                link.href = "dashboard.html";
+                link.href = "dashboard";
                 link.classList.add('auth-nav-user');
                 link.title = t('nav.open_dashboard');
                 link.innerHTML =
@@ -522,11 +529,11 @@ document.addEventListener('DOMContentLoaded', () => {
             let a = nav.querySelector('.nav-msg-link');
             if (!user) { if (a) a.remove(); return; }
             if (!a) {
-                a = document.createElement('a'); a.className = 'nav-msg-link btn-outline'; a.href = 'messenger.html'; a.setAttribute('data-i18n', 'nav.messenger');
+                a = document.createElement('a'); a.className = 'nav-msg-link btn-outline'; a.href = 'messenger'; a.setAttribute('data-i18n', 'nav.messenger');
                 a.textContent = t('nav.messenger');
                 const anchor = nav.querySelector('a.auth-nav-link'); if (anchor) nav.insertBefore(a, anchor); else nav.appendChild(a);
             }
-            if (/messenger\.html/.test(location.pathname)) a.classList.add('active');
+            if (/\/messenger(\.html)?$/.test(location.pathname)) a.classList.add('active');
         });
     }
 
@@ -567,13 +574,13 @@ document.addEventListener('DOMContentLoaded', () => {
             window.dispatchEvent(new CustomEvent('starth-auth-ready', { detail: { user, profile: window.currentUserProfile } }));
             // notifications about new messages (badge, tab title, system notification) on every page
             if (user && !window.StarthPresence && !document.querySelector('script[data-presence]')) {
-                const sp = document.createElement('script'); sp.src = 'presence.js'; sp.dataset.presence = '1'; document.head.appendChild(sp);
+                const sp = document.createElement('script'); sp.src = 'presence.js?v=92'; sp.dataset.presence = '1'; document.head.appendChild(sp);
             }
-            if (user && !window.__tgNudge && !document.querySelector('script[data-tg-nudge]')) {
-                const sn = document.createElement('script'); sn.src = 'tg-nudge.js'; sn.dataset.tgNudge = '1'; document.head.appendChild(sn);
+            if (user && !window.STARTH_EMBED && !window.__tgNudge && !document.querySelector('script[data-tg-nudge]')) {
+                const sn = document.createElement('script'); sn.src = 'tg-nudge.js?v=92'; sn.dataset.tgNudge = '1'; document.head.appendChild(sn);
             }
-            if (user && !window.StarthNotify && !document.querySelector('script[data-msg-notify]')) {
-                const sc = document.createElement('script'); sc.src = 'msg-notify.js'; sc.dataset.msgNotify = '1'; document.head.appendChild(sc);
+            if (user && !window.STARTH_EMBED && !window.StarthNotify && !document.querySelector('script[data-msg-notify]')) {
+                const sc = document.createElement('script'); sc.src = 'msg-notify.js?v=92'; sc.dataset.msgNotify = '1'; document.head.appendChild(sc);
             }
         });
     } else {
@@ -588,6 +595,24 @@ document.addEventListener('DOMContentLoaded', () => {
             e.target.style.display = 'none';
         }
     });
+
+    // ?next=/video-lesson?room=... — after signing in, go back to the page the person came from (only our own pages).
+    function afterLoginUrl_() {
+        try {
+            const n = new URLSearchParams(window.location.search).get('next') || '';
+            if (/^\/(?!\/)[^\\]*$/.test(n) && !/^\/+(javascript|data):/i.test(n)) return n;
+        } catch (e) {}
+        return 'dashboard';
+    }
+    window.starthAfterLoginUrl = afterLoginUrl_;
+    try {
+        if (new URLSearchParams(window.location.search).get('next') && authModal) {
+            window.addEventListener('load', () => {
+                if (typeof FIREBASE_READY === 'undefined' || !FIREBASE_READY) return;
+                const off = auth.onAuthStateChanged((u) => { off(); if (u) window.location.replace(afterLoginUrl_()); else authModal.style.display = 'block'; });
+            });
+        }
+    } catch (e) {}
 
     if (loginForm) {
         loginForm.addEventListener('submit', async (e) => {
@@ -605,7 +630,7 @@ document.addEventListener('DOMContentLoaded', () => {
             try {
                 await auth.signInWithEmailAndPassword(loginForm.email.value.trim(), loginForm.password.value);
                 authModal.style.display = 'none';
-                window.location.href = 'dashboard.html';
+                window.location.href = afterLoginUrl_();
             } catch (err) {
                 errEl.textContent = translateFirebaseError_(err.code, err.message);
             } finally {
@@ -616,7 +641,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ── REFERRALS ──────────────────────────────────────────────────────────────
-    // Invite code = the student's nickname. Link: index.html?ref=<nickname>.
+    // Invite code = the student's nickname. Link: ./?ref=<nickname>.
     // The code is remembered in this browser, and when the visitor registers we write
     // referrals/<new uid> (status "registered"). The admin later marks it "paid" / "rewarded".
     const REF_RE = /^[a-z0-9_]{3,20}$/;
@@ -637,7 +662,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try { const r = localStorage.getItem('starth_ref') || ''; return REF_RE.test(r) ? r : ''; } catch (e) { return ''; }
     };
     window.starthReferralLink = function (nickname) {
-        return window.location.origin + window.location.pathname.replace(/[^/]*$/, '') + 'index.html?ref=' + encodeURIComponent(nickname);
+        return window.location.origin + window.location.pathname.replace(/[^/]*$/, '') + '?ref=' + encodeURIComponent(nickname);
     };
     function trOr_(key, fallback) { const v = (typeof t === 'function') ? t(key) : key; return (v && v !== key) ? v : fallback; }
 
@@ -684,6 +709,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const userRef = db.collection('users').doc(uid);
         return db.runTransaction(async (tx) => {
             const cSnap = await tx.get(counterRef);
+            // Never take a second number for someone who already has one (dashboard opened twice,
+            // two tabs, a slow reload…) — that used to burn a number and leave a gap in the IDs.
+            const uSnap = await tx.get(userRef);
+            const have = uSnap.exists && uSnap.data().studentId;
+            if (have && !nickname) return have;
             const next = (cSnap.exists ? (cSnap.data().last || 0) : 0) + 1;
             const id = formatStudentId_(next);
             if (cSnap.exists) tx.update(counterRef, { last: next });
@@ -701,6 +731,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // Used by the dashboard: gives an ID to students who registered before IDs existed.
     window.starthEnsureStudentId = async function (uid, profile) {
         if (profile && profile.studentId) return profile.studentId;
+        // IDs are for students only — teacher/admin accounts must not use up numbers.
+        if (profile && profile.role && profile.role !== 'student') return '';
         if (typeof FIREBASE_READY === 'undefined' || !FIREBASE_READY) return '';
         return nextStudentId_(uid, null, null);
     };
@@ -714,10 +746,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 errEl.textContent = t('js.accounts_not_ready');
                 return;
             }
-            const btn = registerForm.querySelector('button');
+            const btn = registerForm.querySelector('button[type="submit"]') || registerForm.querySelector('button:not(.pp-btn)');
             const originalText = btn.textContent;
             btn.textContent = t('js.creating');
             btn.disabled = true;
+            if (window.showToast) window.showToast(t('js.creating_toast'), 'clock');
 
             const name = registerForm.name.value.trim();
             const surname = registerForm.surname.value.trim();
@@ -760,7 +793,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 await Promise.race([sheetSent, new Promise(r => setTimeout(r, 2500))]);
 
                 authModal.style.display = 'none';
-                window.location.href = 'dashboard.html';
+                window.location.href = afterLoginUrl_();
             } catch (err) {
                 errEl.textContent = translateFirebaseError_(err.code, err.message);
             } finally {
@@ -772,7 +805,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     window.starthLogout = function() {
         if (typeof FIREBASE_READY !== 'undefined' && FIREBASE_READY) auth.signOut();
-        window.location.href = 'index.html';
+        window.location.href = './';
     };
 
     // Hero no longer uses a canvas animation — replaced with a static score-report visual.
@@ -897,81 +930,48 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // Pricing Format Switcher (texts come from translations.js)
+    // Three formats: 'grp5' = groups up to 5 (first, default), 'grp' = mini-groups up to 3, 'ind' = 1-on-1.
+    const PRICING_MODES = ['grp5', 'grp', 'ind'];
+    window.starthPricingMode = function () {
+        for (const m of PRICING_MODES) { const b = document.getElementById('btn-pricing-' + m); if (b && b.classList.contains('active')) return m; }
+        return 'grp5';
+    };
     window.addEventListener('starth-lang-changed', () => {
-        const g = document.getElementById('btn-pricing-grp');
-        window.setPricingMode(g && g.classList.contains('active') ? 'grp' : 'ind');
+        if (document.getElementById('pricing-toggle-desc')) window.setPricingMode(window.starthPricingMode());
     });
     window.setPricingMode = function(mode) {
-        const btnInd = document.getElementById('btn-pricing-ind');
-        const btnGrp = document.getElementById('btn-pricing-grp');
         const desc = document.getElementById('pricing-toggle-desc');
-        
-        if (!btnInd || !btnGrp || !desc) return;
-        
-        if (mode === 'ind') {
-            btnInd.classList.add('active');
-            btnGrp.classList.remove('active');
-            desc.textContent = t('pricing.desc_ind');
-        } else {
-            btnGrp.classList.add('active');
-            btnInd.classList.remove('active');
-            desc.textContent = t('pricing.desc_grp');
-        }
-        
+        if (!desc || !document.getElementById('btn-pricing-' + mode)) return;
+        PRICING_MODES.forEach((m) => { const b = document.getElementById('btn-pricing-' + m); if (b) b.classList.toggle('active', m === mode); });
+        // groups of 5 share the group texts (features), with their own description
+        const tx = mode === 'ind' ? 'ind' : 'grp';
+        desc.textContent = t('pricing.desc_' + mode);
+
         // Update price tags
         const priceTrial = document.getElementById('price-trial');
         const priceStandard = document.getElementById('price-standard');
         const priceIntensive = document.getElementById('price-intensive');
-        
+        const val = (el) => el.getAttribute('data-' + mode) != null ? el.getAttribute('data-' + mode) : el.getAttribute('data-grp');
+
         if (priceTrial) {
-            priceTrial.textContent = parseFloat(priceTrial.getAttribute('data-' + mode)) === 0 ? t('pricing.free') : priceTrial.getAttribute('data-' + mode);
+            priceTrial.textContent = parseFloat(val(priceTrial)) === 0 ? t('pricing.free') : val(priceTrial);
         }
-        if (priceStandard) {
-            priceStandard.textContent = priceStandard.getAttribute('data-' + mode);
-        }
-        if (priceIntensive) {
-            priceIntensive.textContent = priceIntensive.getAttribute('data-' + mode);
-        }
-        
+        if (priceStandard) priceStandard.textContent = val(priceStandard);
+        if (priceIntensive) priceIntensive.textContent = val(priceIntensive);
+
         // Dynamic card context updating
         const trialDesc = document.getElementById('trial-card-desc');
         if (trialDesc) {
-            trialDesc.textContent = t(mode === 'ind' ? 'pricing.trial_desc_ind' : 'pricing.trial_desc_grp');
+            trialDesc.textContent = t(mode === 'grp5' ? 'pricing.trial_desc_grp5' : 'pricing.trial_desc_' + tx);
         }
-        
-        const trialFeatures = document.getElementById('trial-card-features');
-        if (trialFeatures) {
-            trialFeatures.innerHTML = mode === 'ind' 
-                ? `<li>${t('pricing.trial_f_ind1')}</li>
-                   <li>${t('pricing.trial_f_ind2')}</li>
-                   <li>${t('pricing.trial_f_ind3')}</li>`
-                : `<li>${t('pricing.trial_f_grp1')}</li>
-                   <li>${t('pricing.trial_f_grp2')}</li>
-                   <li>${t('pricing.trial_f_grp3')}</li>`;
-        }
-        
-        const standardFeatures = document.getElementById('standard-card-features');
-        if (standardFeatures) {
-            standardFeatures.innerHTML = mode === 'ind'
-                ? `<li>${t('pricing.std_f_ind1')}</li>
-                   <li>${t('pricing.std_f_ind2')}</li>
-                   <li>${t('pricing.std_f_ind3')}</li>`
-                : `<li>${t('pricing.std_f_grp1')}</li>
-                   <li>${t('pricing.std_f_grp2')}</li>
-                   <li>${t('pricing.std_f_grp3')}</li>`;
-        }
-        
-        const intensiveFeatures = document.getElementById('intensive-card-features');
-        if (intensiveFeatures) {
-            intensiveFeatures.innerHTML = mode === 'ind'
-                ? `<li>${t('pricing.int_f_ind1')}</li>
-                   <li>${t('pricing.int_f_ind2')}</li>
-                   <li>${t('pricing.int_f_ind3')}</li>`
-                : `<li>${t('pricing.int_f_grp1')}</li>
-                   <li>${t('pricing.int_f_grp2')}</li>
-                   <li>${t('pricing.int_f_grp3')}</li>`;
-        }
-        
+        const fill = (id, pre) => {
+            const ul = document.getElementById(id); if (!ul) return;
+            ul.innerHTML = [1, 2, 3].map((i) => `<li>${t(pre + tx + i)}</li>`).join('');
+        };
+        fill('trial-card-features', 'pricing.trial_f_');
+        fill('standard-card-features', 'pricing.std_f_');
+        fill('intensive-card-features', 'pricing.int_f_');
+
         // Re-calculate active coupon discounts dynamically
         if (window.currentActivePromo) {
             window.applyPromoCode(true);
@@ -979,8 +979,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     (function () {
-        const g = document.getElementById('btn-pricing-grp');
-        if (document.getElementById('pricing-toggle-desc')) window.setPricingMode(g && g.classList.contains('active') ? 'grp' : 'ind');
+        if (document.getElementById('pricing-toggle-desc')) window.setPricingMode(window.starthPricingMode());
     })();
 
     // Logout is defined in the Firebase auth block above (window.starthLogout)
@@ -989,11 +988,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // everybody else is sent to the referral section of the personal cabinet (asks to log in).
     window.generateReferralLink = function() {
         const profile = window.currentUserProfile;
-        if (!profile || !profile.nickname) { window.location.href = 'dashboard.html#referral'; return; }
+        if (!profile || !profile.nickname) { window.location.href = 'dashboard#referral'; return; }
         const link = window.starthReferralLink(profile.nickname);
         navigator.clipboard.writeText(link).then(() => {
             window.showToast(t('js.ref_copied'), 'users');
-        }).catch(() => { window.location.href = 'dashboard.html#referral'; });
+        }).catch(() => { window.location.href = 'dashboard#referral'; });
     };
 
     // Quests action triggers
@@ -1007,13 +1006,29 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    // Interactive Promo Code dynamic calculation box
+    // Interactive Promo Code dynamic calculation box.
+    // Admin-created codes (Admin panel -> «Промокоды», Firestore promoCodes/{code}) are checked first;
+    // a few hardcoded demo codes below keep working as a fallback.
     window.currentActivePromo = null;
+    // Only the typed code is looked up (the full list of codes is not downloadable — security rules).
+    const adminPromoCache = {};
+    function loadAdminPromoCodes(code) {
+        if (typeof FIREBASE_READY === 'undefined' || !FIREBASE_READY || !code) return Promise.resolve({});
+        if (code in adminPromoCache) return Promise.resolve(adminPromoCache);
+        return db.collection('promoCodes').doc(code).get().then((d) => { adminPromoCache[code] = d.exists ? d.data() : null; return adminPromoCache; })
+            .catch(() => adminPromoCache);
+    }
+    function isPromoExpired(p) {
+        if (!p || !p.expires) return false;
+        const today = todayDateStr();
+        return String(p.expires) < today;
+    }
+    function todayDateStr() { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
     window.applyPromoCode = function(silent = false) {
         const promoInput = document.getElementById('promo-code-input');
         const feedback = document.getElementById('promo-feedback');
         if (!promoInput || !feedback) return;
-        
+
         const code = promoInput.value.trim().toUpperCase();
         if (!code) {
             if (!silent) {
@@ -1023,21 +1038,31 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             return;
         }
-        
+
+        loadAdminPromoCodes(code).then((admin) => {
         let discountPct = 0;
         let description = '';
-        
-        if (code === 'FRIEND20') {
-            discountPct = 20;
-            description = t('promo.desc_friend');
-        } else if (code === 'START10' || code === 'QUEST10') {
-            discountPct = 10;
-            description = t('promo.desc_quest');
-        } else if (code === 'GEMINI') {
-            discountPct = 15;
-            description = t('promo.desc_dev');
+        let isFree = false;
+
+        const ap = admin[code];
+        if (ap && ap.active !== false && !isPromoExpired(ap)) {
+            if (ap.free) { discountPct = 100; isFree = true; description = t('promo.desc_free'); }
+            else { discountPct = Math.max(0, Math.min(100, Number(ap.pct) || 0)); description = ''; }
         }
-        
+
+        if (discountPct <= 0) {
+            if (code === 'FRIEND20') {
+                discountPct = 20;
+                description = t('promo.desc_friend');
+            } else if (code === 'START10' || code === 'QUEST10') {
+                discountPct = 10;
+                description = t('promo.desc_quest');
+            } else if (code === 'GEMINI') {
+                discountPct = 15;
+                description = t('promo.desc_dev');
+            }
+        }
+
         if (discountPct > 0) {
             window.currentActivePromo = { code, discountPct };
             feedback.className = 'promo-feedback success';
@@ -1045,7 +1070,8 @@ document.addEventListener('DOMContentLoaded', () => {
             feedback.style.display = 'block';
             
             if (!silent) {
-                window.showToast(t('promo.toast').replace('{code}', code).replace('{pct}', discountPct), 'ticket');
+                const msg = isFree ? t('promo.toast_free').replace('{code}', code) : t('promo.toast').replace('{code}', code).replace('{pct}', discountPct);
+                window.showToast(msg, 'ticket');
             }
             
             // Recompute values
@@ -1053,7 +1079,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const priceStandard = document.getElementById('price-standard');
             const priceIntensive = document.getElementById('price-intensive');
             
-            const activeMode = document.getElementById('btn-pricing-grp').classList.contains('active') ? 'grp' : 'ind';
+            const activeMode = window.starthPricingMode();
             
             if (priceTrial && parseFloat(priceTrial.getAttribute('data-' + activeMode)) > 0) {
                 const origVal = parseFloat(priceTrial.getAttribute('data-' + activeMode));
@@ -1077,8 +1103,9 @@ document.addEventListener('DOMContentLoaded', () => {
             
             // Revert changes if error entered
             window.currentActivePromo = null;
-            const activeMode = document.getElementById('btn-pricing-grp').classList.contains('active') ? 'grp' : 'ind';
+            const activeMode = window.starthPricingMode();
             window.setPricingMode(activeMode);
         }
+        });
     };
 });

@@ -1,5 +1,5 @@
 /* TheStarth — admin panel: "Mock-тесты" (build IELTS Listening / Reading tests, with AI help, and see student results).
- * Needs (from admin.html): db, firebase, escapeHtml, CsvExport.   Needs: mock-engine.js, mock-config.js.
+ * Needs (from admin): db, firebase, escapeHtml, CsvExport.   Needs: mock-engine.js, mock-config.js.
  * Collections: mockTests (the tests), mockResults (what students got).  Audio goes to Firebase Storage: mockAudio/…
  */
 (function () {
@@ -44,7 +44,7 @@
     }
     async function toggle(id) { const t = tests.find((x) => x.id === id); if (!t) return; try { await db.collection('mockTests').doc(id).update({ published: !t.published }); } catch (e) { alert('Ошибка: ' + e.message); } loadMocks(); }
     async function remove(id) {
-        const t = tests.find((x) => x.id === id); if (!t || !confirm('Удалить тест «' + (t.title || '') + '»? Результаты учеников останутся.')) return;
+        const t = tests.find((x) => x.id === id); if (!t || !await StarthUI.confirm('Удалить тест «' + (t.title || '') + '»? Результаты учеников останутся.')) return;
         try { await db.collection('mockTests').doc(id).delete(); } catch (e) { alert('Ошибка: ' + e.message); } loadMocks();
     }
 
@@ -269,11 +269,11 @@
             if (el.dataset.act === 'srcfile' || el.dataset.act === 'ansfile') { loadFile(el, c); return; }
             if (el.dataset.if === 'answer' && (c.G.type === 'tfng' || c.G.type === 'yn')) setAnswer(c.G, c.I, el.value);
         };
-        root.onclick = (e) => {
+        root.onclick = async (e) => {
             const b = e.target.closest('[data-act]'); if (!b || b.tagName === 'INPUT') return;
             const c = ctx(b), act = b.dataset.act;
             if (act === 'addgroup') { c.P.groups.push({ type: 'gap', instruction: '', items: [blankItem('gap')] }); E.renumber(ed); renderParts(); }
-            else if (act === 'delgroup') { if (confirm('Удалить блок вместе с вопросами?')) { c.P.groups.splice(c.gi, 1); E.renumber(ed); renderParts(); } }
+            else if (act === 'delgroup') { if (await StarthUI.confirm('Удалить блок вместе с вопросами?')) { c.P.groups.splice(c.gi, 1); E.renumber(ed); renderParts(); } }
             else if (act === 'additem') { c.G.items.push(blankItem(c.G.type)); E.renumber(ed); renderParts(); }
             else if (act === 'delitem') { c.G.items.splice(c.ii, 1); E.renumber(ed); renderParts(); }
             else if (act === 'ai') runAI(c);
@@ -380,8 +380,8 @@
             if (el) { el.textContent = 'Готово: ' + E.partTotal(P) + ' вопросов. ' + (norm.warnings.length ? 'Проверьте: ' + norm.warnings.slice(0, 4).join('; ') : 'Просмотрите вопросы и ответы ниже.'); el.className = 'status-msg ' + (norm.warnings.length ? 'error' : 'ok'); }
         } catch (e) { stEl.textContent = 'Не получилось: ' + e.message; stEl.className = 'status-msg error'; }
     }
-    function importAll() {
-        const t = window.prompt('Вставьте JSON всего теста (части в поле "parts"):'); if (!t) return;
+    async function importAll() {
+        const t = await StarthUI.prompt('Вставьте JSON всего теста (части в поле "parts"):'); if (!t) return;
         try {
             const norm = E.normalizeTest(E.extractJson(t), ed.skill);
             if (norm.test.skill !== ed.skill) { ed.skill = norm.test.skill; }
@@ -391,7 +391,7 @@
         } catch (e) { st('mk-save-status', e.message, false); }
     }
     function addPart() { ed.parts.push(blankPart(ed.skill, ed.parts.length + 1)); ed.parts[ed.parts.length - 1]._src = { text: '', answers: '' }; renderParts(); }
-    function delPart(i) { if (ed.parts.length < 2) return alert('В тесте должна быть хотя бы одна часть.'); if (confirm('Удалить часть «' + ed.parts[i].title + '»?')) { ed.parts.splice(i, 1); E.renumber(ed); renderParts(); } }
+    async function delPart(i) { if (ed.parts.length < 2) return alert('В тесте должна быть хотя бы одна часть.'); if (await StarthUI.confirm('Удалить часть «' + ed.parts[i].title + '»?')) { ed.parts.splice(i, 1); E.renumber(ed); renderParts(); } }
 
     // ====================== save ======================
     function clean() {
@@ -410,12 +410,12 @@
         } else if (t.skill === 'full') {
             const r = t.refs || {}; if (!r.listening && !r.reading && !r.writing) return st('mk-save-status', 'Выберите хотя бы один тест для полного мока.', false);
             const unpub = ['listening', 'reading', 'writing'].filter((k) => { const x = tests.find((y) => y.id === r[k]); return r[k] && x && !x.published; });
-            if (publish && unpub.length && !confirm('Не опубликованы тесты: ' + unpub.join(', ') + '. Ученики не смогут их пройти. Всё равно опубликовать полный мок?')) return;
+            if (publish && unpub.length && !await StarthUI.confirm('Не опубликованы тесты: ' + unpub.join(', ') + '. Ученики не смогут их пройти. Всё равно опубликовать полный мок?')) return;
         } else {
             if (!t.parts.some((p) => E.partTotal(p) > 0)) return st('mk-save-status', 'Добавьте хотя бы один вопрос.', false);
             E.renumber(t);
             t.parts.forEach((p) => p.groups.forEach((g) => g.items.forEach((it) => { const e = Array.isArray(it.answer) ? !it.answer.length : !it.answer; if (e) bad.push(it.n); })));
-            if (bad.length && publish && !confirm('У вопросов без ответа (' + bad.slice(0, 12).join(', ') + (bad.length > 12 ? '…' : '') + ') любой ответ ученика будет считаться неверным. Всё равно опубликовать?')) return;
+            if (bad.length && publish && !await StarthUI.confirm('У вопросов без ответа (' + bad.slice(0, 12).join(', ') + (bad.length > 12 ? '…' : '') + ') любой ответ ученика будет считаться неверным. Всё равно опубликовать?')) return;
         }
         t.published = publish ? true : !!ed.published;
         const now = new Date().toISOString(); t.updatedAt = now;

@@ -1,0 +1,25 @@
+# Cloudflare Pages: security headers and caching for every page (ignored by GitHub Pages).
+/*
+  X-Content-Type-Options: nosniff
+  Content-Security-Policy: frame-ancestors 'self' https://web.telegram.org https://*.telegram.org
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(self), microphone=(self), display-capture=(self), geolocation=(), payment=(), usb=()
+  Strict-Transport-Security: max-age=15552000; includeSubDomains
+  Cross-Origin-Opener-Policy: same-origin-allow-popups
+
+/video/*
+  Cache-Control: public, max-age=604800
+
+/images/*
+  Cache-Control: public, max-age=604800
+
+/docs/*
+  Cache-Control: public, max-age=86400
+
+# Scripts and styles: every page links them as file.js?v=NN, so a new version always gets a new address —
+# browsers may keep them for a year and never ask again (pages switch faster).
+/*.js
+  Cache-Control: public, max-age=31536000, immutable
+
+/*.css
+  Cache-Control: public, max-age=31536000, immutable

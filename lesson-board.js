@@ -4,20 +4,23 @@
  *   lessonBoards/{room}                 { teacherUid, teacherName, allowAll, allowed:[uid], createdAt }
  *   lessonBoards/{room}/strokes/{id}    { uid, sid, color, size, pts:[x,y,...] (0..1), ts }
  *   lessonBoards/{room}/people/{uid}    { name, role, nickname, lastSeen }   (who is in the room)
- * Everybody in the room sees the board. Only the teacher who opened it — and people the teacher
- * switches on — can draw (enforced by Firestore rules, not just by the buttons here).
+ * Everybody in the room sees the board. EVERY teacher in the room (teacher / partner / curator, and admins)
+ * is a host: can draw, give or take drawing rights, clear the board. teacherUid is only the "lead" teacher
+ * (whose cursor students can follow); a teacher who comes in while the lead is away takes the lead over.
+ * Students draw only when a host switches them on (enforced by Firestore rules, not just by the buttons here).
  *
  * Attendance: when the page is opened with ?group=<id> by that group's teacher, a panel lists the
  * group's students (with "in the room" badges) and saves attendance/{groupId_date}.
  */
 (function () {
     'use strict';
+    const nowMs = () => (window.starthNow ? window.starthNow() : Date.now());   // clock corrected to the server (lesson-call.js)
     const $ = (id) => document.getElementById(id);
     const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     const X = (m) => (window.X ? window.X(m) : m);
     const alert = (m) => window.alert(X(m));
-    const confirm = (m) => window.confirm(X(m));
-    const prompt = (m, d) => window.prompt(X(m), d);
+    const confirm = (m) => StarthUI.confirm(X(m));
+    const prompt = (m, d) => StarthUI.prompt(X(m), d);
     const ic = (n) => (window.Icons ? window.Icons.svg(n) : '');
     const pad = (n) => String(n).padStart(2, '0');
     const todayStr = () => { const d = new Date(); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); };
@@ -34,10 +37,16 @@
     let people = [], unsubs = [], hbTimer = null, uiTimer = null, authUnsub = null;
     let groupDoc = null, attMarks = {}, started = false;
     const gid = new URLSearchParams(location.search).get('group') || '';
+    let zoom = 1, zOuter = null, zWrap = null, pinch = null;
+    const ZMIN = 0.4, ZMAX = 10;
 
-    const isOwner = () => !!(me && board && board.teacherUid === me.uid);
-    const canWrite = () => !!(me && board && (board.teacherUid === me.uid || board.allowAll === true || (board.allowed || []).indexOf(me.uid) !== -1));
-    const isTeacher = () => !!(myProfile && myProfile.role === 'teacher');
+    const TEACHER_ROLES = ['teacher', 'partner', 'curator', 'partner_curator'];
+    let isAdminUser = false;
+    const isTeacher = () => !!(myProfile && TEACHER_ROLES.indexOf(myProfile.role) !== -1);
+    const isLead = () => !!(me && board && board.teacherUid === me.uid);                          // the teacher students follow
+    const isHost = () => !!(me && board && (isTeacher() || isAdminUser || board.teacherUid === me.uid));   // any teacher: draws + manages access
+    const isOwner = isHost;
+    const canWrite = () => !!(me && board && (isHost() || board.allowAll === true || (board.allowed || []).indexOf(me.uid) !== -1));
 
     // ── drawing ─────────────────────────────────────────────────────────────
     const tb = new Map();           // text stroke id -> bounds in canvas px (for hit-testing)
@@ -76,6 +85,61 @@
     }
     const r4 = (n) => Math.round(n * 10000) / 10000;
 
+    // ── zoom (CSS-transform scale of .bd-canvas-wrap inside a scrollable outer box) ──
+    function setZoom(z, clientX, clientY) {
+        if (!zOuter || !zWrap) return;
+        const nz = Math.min(ZMAX, Math.max(ZMIN, z));
+        if (nz === zoom) return;
+        const r = zOuter.getBoundingClientRect();
+        const cx = (clientX != null ? clientX : r.left + r.width / 2) - r.left;
+        const cy = (clientY != null ? clientY : r.top + r.height / 2) - r.top;
+        const ux = (zOuter.scrollLeft + cx) / zoom;
+        const uy = (zOuter.scrollTop + cy) / zoom;
+        zoom = nz;
+        zWrap.style.transform = 'scale(' + zoom + ')';
+        zOuter.scrollLeft = ux * zoom - cx;
+        zOuter.scrollTop = uy * zoom - cy;
+        const pct = $('bd-zoom-pct'); if (pct) pct.textContent = Math.round(zoom * 100) + '%';
+    }
+    function resetZoom() {
+        zoom = 1;
+        if (zWrap) zWrap.style.transform = 'scale(1)';
+        if (zOuter) { zOuter.scrollLeft = 0; zOuter.scrollTop = 0; }
+        const pct = $('bd-zoom-pct'); if (pct) pct.textContent = '100%';
+    }
+    function pinchDist(a, b) { return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY); }
+    function bindZoomUI() {
+        zOuter = $('bd-zoom-outer'); zWrap = $('bd-canvas-wrap');
+        if (!zOuter || !zWrap) return;
+        const inBtn = $('bd-zoom-in'), outBtn = $('bd-zoom-out'), rstBtn = $('bd-zoom-reset');
+        if (inBtn) inBtn.onclick = () => setZoom(zoom * 1.4);
+        if (outBtn) outBtn.onclick = () => setZoom(zoom / 1.4);
+        if (rstBtn) rstBtn.onclick = resetZoom;
+        zOuter.addEventListener('wheel', (e) => {
+            if (!e.ctrlKey && !e.metaKey) return;      // plain wheel/trackpad scroll stays native
+            e.preventDefault();
+            setZoom(zoom * (e.deltaY < 0 ? 1.12 : 1 / 1.12), e.clientX, e.clientY);
+        }, { passive: false });
+        const pts = new Map();
+        zOuter.addEventListener('pointerdown', (e) => { if (e.pointerType === 'touch') pts.set(e.pointerId, e); });
+        zOuter.addEventListener('pointermove', (e) => {
+            if (!pts.has(e.pointerId)) return;
+            pts.set(e.pointerId, e);
+            if (pts.size === 2) {
+                e.preventDefault();
+                const [a, b] = Array.from(pts.values());
+                const d = pinchDist(a, b);
+                const mx = (a.clientX + b.clientX) / 2, my = (a.clientY + b.clientY) / 2;
+                if (pinch) setZoom(zoom * (d / pinch.d), mx, my);
+                pinch = { d };
+            }
+        });
+        const endPt = (e) => { pts.delete(e.pointerId); if (pts.size < 2) pinch = null; };
+        zOuter.addEventListener('pointerup', endPt);
+        zOuter.addEventListener('pointercancel', endPt);
+        zOuter.addEventListener('pointerleave', endPt);
+    }
+
     function flush(final) {
         if (!gesture || !buf.length) return;
         if (buf.length < 4 && !(final && !gesture.flushed)) return;   // only a start point so far
@@ -84,7 +148,7 @@
         const ref = boardRef.collection('strokes').doc();
         localIds.add(ref.id);
         gesture.ids.push(ref.id); gesture.flushed = true;
-        const st = { uid: me.uid, sid: gesture.sid, color: gesture.color, size: gesture.size, pts, ts: Date.now() };
+        const st = { uid: me.uid, sid: gesture.sid, color: gesture.color, size: gesture.size, pts, ts: nowMs() };
         ref.set(st).catch((err) => { console.warn('Board write failed', err); setStatus('Не удалось отправить штрих — возможно, доступ к доске отозван.', ''); });
     }
     function pointerDown(e) {
@@ -94,7 +158,7 @@
         try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
         drawing = true;
         const c = eraser ? '#ffffff' : color, s = eraser ? width * 4 : width;
-        gesture = { sid: Date.now() + '-' + Math.random().toString(36).slice(2, 7), color: c, size: s, ids: [], flushed: false };
+        gesture = { sid: nowMs() + '-' + Math.random().toString(36).slice(2, 7), color: c, size: s, ids: [], flushed: false };
         const [x, y] = pos(e);
         buf = [r4(x), r4(y)];
         gesture.last = [x, y];
@@ -147,8 +211,8 @@
         if (!textBox.id) {
             const ref = boardRef.collection('strokes').doc();
             textBox.id = ref.id; localIds.add(ref.id);
-            const st = { uid: me.uid, sid: Date.now() + '-t' + Math.random().toString(36).slice(2, 6), color: textBox.color, size: width,
-                pts: [r4(textBox.x), r4(textBox.y)], text, fs: textBox.fs, ts: Date.now() };
+            const st = { uid: me.uid, sid: nowMs() + '-t' + Math.random().toString(36).slice(2, 6), color: textBox.color, size: width,
+                pts: [r4(textBox.x), r4(textBox.y)], text, fs: textBox.fs, ts: nowMs() };
             strokes.set(ref.id, st);
             myGestures.push({ sid: st.sid, ids: [ref.id] }); if (myGestures.length > 30) myGestures.shift();
             ref.set(st).catch((err) => { console.warn('Board write failed', err); setStatus('Не удалось отправить текст — возможно, доступ к доске отозван.', ''); });
@@ -205,7 +269,7 @@
         const st = strokes.get(dragState.id); if (!st) return;
         st.pts = [r4(Math.min(1, Math.max(0, dragState.orig[0] + x - dragState.sx))), r4(Math.min(1, Math.max(0, dragState.orig[1] + y - dragState.sy)))];
         redraw();
-        const now = Date.now();
+        const now = nowMs();
         if (now - dragTimer > 120) { dragTimer = now; boardRef.collection('strokes').doc(dragState.id).update({ pts: st.pts }).catch(() => {}); }
     }
     function textUp(e) {
@@ -213,7 +277,7 @@
         const d = dragState; dragState = null;
         if (d.moved) {
             const st = strokes.get(d.id);
-            if (st) { st.ts = Date.now(); boardRef.collection('strokes').doc(d.id).update({ pts: st.pts, ts: st.ts }).catch(() => {}); }
+            if (st) { st.ts = nowMs(); boardRef.collection('strokes').doc(d.id).update({ pts: st.pts, ts: st.ts }).catch(() => {}); }
             dragId = ''; redraw();
         } else if (d.id) openTextBox(0, 0, d.id);
         else openTextBox(d.x, d.y, '');
@@ -226,7 +290,7 @@
         catch (err) { console.warn(err); }
     }
     async function clearBoard() {
-        if (!isOwner() || !confirm('Стереть всю доску для всех?')) return;
+        if (!isOwner() || !await confirm('Стереть всю доску для всех?')) return;
         try {
             for (let i = 0; i < 50; i++) {
                 const snap = await boardRef.collection('strokes').limit(400).get();
@@ -247,8 +311,8 @@
         $('bd-pt').style.display = w ? '' : 'none'; $('bd-last').style.display = owner ? 'none' : ''; $('bd-follow').style.display = owner ? 'none' : ''; $('bd-follow-note').style.display = owner ? 'none' : '';
         $('bd-people').style.display = owner ? 'block' : 'none';
         $('bd-lock').style.display = w ? 'none' : 'block';
-        if (!board) setStatus(isTeacher() ? 'Открываю доску…' : 'Учитель ещё не открыл доску.', '');
-        else if (owner) setStatus('Вы ведёте доску — пишете вы; остальным можно дать доступ ниже.', 'on');
+        if (!board) { setStatus((isTeacher() || isAdminUser) ? 'Открываю доску…' : 'Учитель ещё не открыл доску.', ''); if (isTeacher() || isAdminUser) ensureBoard(); }
+        else if (owner) setStatus(isLead() ? 'Вы ведёте доску — пишете вы; остальным можно дать доступ ниже.' : 'Вы учитель — можете писать и давать доступ ученикам (ниже).', 'on');
         else if (w) setStatus('Учитель разрешил вам писать', 'on');
         else if (!me) setStatus('Только просмотр. Войдите в аккаунт — тогда учитель сможет дать вам доступ.', '');
         else setStatus('Только просмотр. Попросите учителя разрешить вам писать.', '');
@@ -260,10 +324,10 @@
     function heartbeat() {
         if (!me || !boardRef) return;
         const name = [myProfile && myProfile.name, myProfile && myProfile.surname].filter(Boolean).join(' ') || (myProfile && myProfile.nickname) || me.email || 'Участник';
-        boardRef.collection('people').doc(me.uid).set({ name, nickname: (myProfile && myProfile.nickname) || '', role: (myProfile && myProfile.role) || 'student', lastSeen: Date.now() }, { merge: true })
+        boardRef.collection('people').doc(me.uid).set({ name, nickname: (myProfile && myProfile.nickname) || '', role: (myProfile && myProfile.role) || 'student', lastSeen: nowMs() }, { merge: true })
             .catch((e) => console.warn('presence', e));
     }
-    const onlinePeople = () => people.filter((p) => Date.now() - (p.lastSeen || 0) < ONLINE_MS);
+    const onlinePeople = () => people.filter((p) => nowMs() - (p.lastSeen || 0) < ONLINE_MS);
 
     function renderPeople() {
         if (isOwner()) {
@@ -273,7 +337,9 @@
             else {
                 const allowed = (board && board.allowed) || [];
                 box.innerHTML = list.map((p) => `<div class="bd-person"><span>${esc(p.name)}${p.nickname ? ' <span class="bd-status">@' + esc(p.nickname) + '</span>' : ''}</span>
-                    <label class="bd-switch"><input type="checkbox" data-uid="${esc(p.uid)}" ${allowed.indexOf(p.uid) !== -1 || (board && board.allowAll) ? 'checked' : ''} ${board && board.allowAll ? 'disabled' : ''}> может писать</label></div>`).join('');
+                    ${TEACHER_ROLES.indexOf(p.role) !== -1 || p.uid === (board && board.teacherUid)
+                        ? '<span class="bd-status on">учитель · всегда может писать</span>'
+                        : `<label class="bd-switch"><input type="checkbox" data-uid="${esc(p.uid)}" ${allowed.indexOf(p.uid) !== -1 || (board && board.allowAll) ? 'checked' : ''} ${board && board.allowAll ? 'disabled' : ''}> может писать</label>`}</div>`).join('');
                 box.querySelectorAll('input[data-uid]').forEach((c) => c.addEventListener('change', () => {
                     const f = firebase.firestore.FieldValue;
                     boardRef.update({ allowed: c.checked ? f.arrayUnion(c.dataset.uid) : f.arrayRemove(c.dataset.uid) }).catch((e) => { alert('Ошибка: ' + e.message); c.checked = !c.checked; });
@@ -322,7 +388,7 @@
                 try {
                     const date = todayStr();
                     await db.collection('attendance').doc(gid + '_' + date).set({
-                        groupId: gid, teacherUid: me.uid, date, topic: $('la-topic').value.trim(),
+                        groupId: gid, teacherUid: me.uid, curatorUid: groupDoc.curatorUid || '', date, topic: $('la-topic').value.trim(),
                         marks: attMarks, studentUids: (groupDoc.memberUids || []).slice(), updatedAt: new Date().toISOString()
                     });
                     $('la-msg').textContent = 'Сохранено';
@@ -396,12 +462,13 @@
     }
     function showLast() {
         if (!board) return;
-        const arr = Array.from(strokes.values()).filter((st) => st.uid === board.teacherUid && st.pts && st.pts.length >= 2).sort((a, b) => (b.ts || 0) - (a.ts || 0));
+        const hosts = new Set([board.teacherUid].concat(people.filter((p) => p.role === 'teacher' || TEACHER_ROLES.indexOf(p.role) !== -1).map((p) => p.uid)));
+        const arr = Array.from(strokes.values()).filter((st) => hosts.has(st.uid) && st.pts && st.pts.length >= 2).sort((a, b) => (b.ts || 0) - (a.ts || 0));
         if (!arr.length) { setStatus('Учитель пока ничего не писал на доске.', ''); return; }
         const [x0, y0, x1, y1] = bboxOf(arr[0]); const a = cellOf(x0, y0), b = cellOf(x1, y1);
         showPanel(); rectMark(x0, y0, x1, y1, X('Здесь писал учитель') + ' · ' + (a === b ? a : a + '–' + b), 7000);
     }
-    const teacherCur = () => { const t = people.find((p) => board && p.uid === board.teacherUid); return t && t.cur && Date.now() - (t.cur.ts || 0) < 15000 ? t.cur : null; };
+    const teacherCur = () => { const t = people.find((p) => board && p.uid === board.teacherUid); return t && t.cur && nowMs() - (t.cur.ts || 0) < 15000 ? t.cur : null; };
     function paintTeacherDot() {
         if (!ov) return; const d = ov.querySelector('.bd-tdot'); const c = follow ? teacherCur() : null;
         if (!c) { d.hidden = true; if (follow) setFollowLabel(X('учитель сейчас не на доске')); return; }
@@ -409,7 +476,7 @@
     }
     function setFollowLabel(t) { const l = $('bd-follow-note'); if (l) l.textContent = t; }
     function sendCursor(e, gone) {
-        if (!isOwner() || !boardRef) return; const now = Date.now(); if (!gone && now - lastCur < 350) return; lastCur = now;
+        if (!isLead() || !boardRef) return; const now = nowMs(); if (!gone && now - lastCur < 350) return; lastCur = now;
         const c = gone ? null : (() => { const [x, y] = pos(e); return { x: r4(x), y: r4(y), ts: now }; })();
         boardRef.collection('people').doc(me.uid).set({ cur: c }, { merge: true }).catch(() => {});
     }
@@ -423,23 +490,68 @@
         canvas.addEventListener('pointermove', (e) => sendCursor(e, false));
         canvas.addEventListener('pointerleave', (e) => sendCursor(e, true));
         curTimer = setInterval(paintTeacherDot, 4000);
+        bindZoomUI();
     }
 
     // ── start / stop ────────────────────────────────────────────────────────
+    // The profile decides whether this person is a teacher. A slow/failed read must not turn a teacher into a
+    // viewer, so it is retried, and the last known role (remembered on this device) is used as a fallback.
+    async function loadProfile() {
+        myProfile = null; isAdminUser = false;
+        if (!me) return;
+        const key = 'starthRole_' + me.uid;
+        for (let i = 0; i < 4 && !myProfile; i++) {
+            try { const u = await db.collection('users').doc(me.uid).get(); myProfile = u.exists ? u.data() : {}; }
+            catch (e) { console.warn('board: profile', e); await new Promise((r) => setTimeout(r, 700 * (i + 1))); }
+        }
+        if (!myProfile) { myProfile = {}; try { const r = localStorage.getItem(key); if (r) myProfile.role = r; } catch (e) {} }
+        else { try { localStorage.setItem(key, myProfile.role || ''); } catch (e) {} }
+        try { const a = await db.collection('admins').doc(me.uid).get(); isAdminUser = a.exists; } catch (e) { isAdminUser = false; }
+    }
+
+    // Make sure a board exists and that a teacher who is actually in the lesson leads it.
+    let ensuring = false, ensuredAt = 0;
+    async function ensureBoard() {
+        if (!me || !boardRef || !(isTeacher() || isAdminUser) || ensuring || nowMs() - ensuredAt < 4000) return;
+        ensuring = true; ensuredAt = nowMs();
+        const tn = () => [myProfile.name, myProfile.surname].filter(Boolean).join(' ') || myProfile.nickname || 'Преподаватель';
+        try {
+            const snap = await boardRef.get();
+            if (!snap.exists) {
+                await boardRef.set({ teacherUid: me.uid, teacherName: tn(), groupId: gid, allowAll: false, allowed: [], createdAt: new Date().toISOString() });
+            } else if (isTeacher() && snap.data().teacherUid !== me.uid) {
+                // The lead is whoever opened the board first (another teacher, an admin, the group's previous teacher).
+                // Take it over when this is my group, or when the current lead is not in the room any more.
+                let take = false;
+                if (gid) {
+                    try {
+                        const gd = await db.collection('groups').doc(gid).get();
+                        take = gd.exists && gd.data().teacherUid === me.uid;
+                    } catch (e) {}
+                }
+                if (!take) {
+                    try {
+                        const lp = await boardRef.collection('people').doc(snap.data().teacherUid).get();
+                        take = !lp.exists || nowMs() - (lp.data().lastSeen || 0) > ONLINE_MS;
+                    } catch (e) { take = false; }
+                }
+                if (take) await boardRef.update({ teacherUid: me.uid, teacherName: tn(), groupId: gid || snap.data().groupId || '' });
+            }
+        } catch (e) {
+            console.warn('board ensure', e);
+            if (!board) setStatus('Не удалось открыть доску (' + (e.code || e.message) + '). Пробую ещё раз…', '');
+            setTimeout(() => { ensuredAt = 0; if (!board) ensureBoard(); }, 5000);
+        }
+        ensuring = false;
+    }
+
     async function init() {
         canvas = $('bd-canvas'); ctx = canvas.getContext('2d');
         ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
-        if (!me) myProfile = null;
-        else { try { const u = await db.collection('users').doc(me.uid).get(); myProfile = u.exists ? u.data() : {}; } catch (e) { myProfile = {}; } }
-
+        await loadProfile();
         boardRef = db.collection('lessonBoards').doc(roomId);
-        try {
-            const snap = await boardRef.get();
-            if (!snap.exists && me && isTeacher()) {
-                const tn = [myProfile.name, myProfile.surname].filter(Boolean).join(' ') || myProfile.nickname || 'Преподаватель';
-                await boardRef.set({ teacherUid: me.uid, teacherName: tn, allowAll: false, allowed: [], createdAt: new Date().toISOString() });
-            }
-        } catch (e) { console.warn('board init', e); }
+        if (me) heartbeat();                     // be "in the room" before deciding who leads
+        await ensureBoard();
 
         unsubs.push(boardRef.onSnapshot((d) => { board = d.exists ? d.data() : null; updateUI(); }, (e) => console.warn(e)));
         unsubs.push(boardRef.collection('strokes').orderBy('ts').onSnapshot((snap) => {
@@ -454,7 +566,7 @@
         }, (e) => console.warn(e)));
 
         if (me) {
-            heartbeat(); hbTimer = setInterval(heartbeat, 25000);
+            hbTimer = setInterval(heartbeat, 25000);
             unsubs.push(boardRef.collection('people').onSnapshot((snap) => { people = []; snap.forEach((d) => people.push(Object.assign({ uid: d.id }, d.data()))); renderPeople(); paintTeacherDot(); }, () => {}));
             uiTimer = setInterval(renderPeople, 20000);
         }
@@ -505,6 +617,7 @@
         if (me && boardRef) boardRef.collection('people').doc(me.uid).delete().catch(() => {});
         closeTextBox(false); strokes.clear(); tb.clear(); localIds.clear(); myGestures = []; people = []; board = null; groupDoc = null; attMarks = {};
         if (ctx) { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height); }
+        resetZoom(); zOuter = null; zWrap = null; pinch = null;
     }
     window.addEventListener('beforeunload', () => { if (me && boardRef) boardRef.collection('people').doc(me.uid).delete().catch(() => {}); });
 

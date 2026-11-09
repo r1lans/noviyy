@@ -11,12 +11,65 @@ service cloud.firestore {
         exists(/databases/$(database)/documents/admins/$(request.auth.uid));
     }
 
+    // Staff role inside the admin panel (admins/{uid}.role): 'admin' (everything, the default for old records),
+    // 'curator' (teacher control, groups, schedule, journal), 'content', 'finance'.
+    // Things only a full admin may touch (who is staff) and money (pay, promo codes) are checked with this.
+    function hasStaffRole(roles) {
+      return isAdmin() &&
+        get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.get('role', 'admin') in roles;
+    }
+
     // A teacher is an account whose profile has role == 'teacher'. Only an admin can give that role
     // (see the users rule below), so a student cannot make themselves a teacher.
+    function ownsNick(nick) {
+      return nick is string && existsAfter(/databases/$(database)/documents/nicknames/$(nick)) &&
+        getAfter(/databases/$(database)/documents/nicknames/$(nick)).data.uid == request.auth.uid;
+    }
+
+    // TheStarth's own teachers. A TheStarth curator (users.role 'curator') is a teacher too.
     function isTeacher() {
       return isSignedIn() &&
         exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'teacher';
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') in ['teacher', 'curator'];
+    }
+
+    // A teacher of TheStarth OR an outside teacher who pays for the platform (role 'partner'):
+    // both run their own groups and lessons. (Reading other students' results stays isTeacher() only.)
+    function isTeacherOrPartner() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') in ['teacher', 'partner', 'curator', 'partner_curator'];
+    }
+    // A partner teacher / partner curator may run lessons and open groups only while the paid period lasts (partnerUntil).
+    function partnerActive() {
+      let u = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return !(u.get('role', '') in ['partner', 'partner_curator']) || u.get('partnerUntil', 0) > request.time.toMillis();
+    }
+    // Today's date in Tashkent (UTC+5) as 'yyyy-mm-dd' — the only day a teacher may mark attendance himself.
+    function tashkentToday() {
+      let t = request.time + duration.value(5, 'h');
+      return string(t.year()) + '-' + (t.month() < 10 ? '0' : '') + string(t.month()) + '-' + (t.day() < 10 ? '0' : '') + string(t.day());
+    }
+    // The curator a teacher works under (users/{uid}.curatorUid, set by TheStarth in Admin panel → «Ученики и роли»).
+    function myCuratorUid() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('curatorUid', '');
+    }
+    function curatorOf(uid) {
+      return get(/databases/$(database)/documents/users/$(uid)).data.get('curatorUid', '');
+    }
+    // Partner curator (users/{uid}.role == 'partner_curator'): works in the admin panel, but only with THEIR teachers
+    // (users whose curatorUid is this person) and the groups / lessons / marks that carry curatorUid == this person.
+    // He is NOT in admins/, so everything else of TheStarth stays closed to him.
+    function isPartnerCurator() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'partner_curator';
+    }
+    // Curator roles are handed out only by a full admin.
+    function curatorRoleChange() {
+      return request.resource.data.get('role', 'student') != resource.data.get('role', 'student') &&
+        (request.resource.data.get('role', 'student') in ['curator', 'partner_curator'] ||
+         resource.data.get('role', 'student') in ['curator', 'partner_curator']);
     }
 
     // Each student can read/write only their own profile document.
@@ -25,11 +78,23 @@ service cloud.firestore {
     // IMPORTANT: a person may edit their own profile but may NOT change their own role —
     // only an admin can make someone a teacher / admin (Admin panel -> Ученики).
     match /users/{uid} {
-      allow read: if isSignedIn() && (request.auth.uid == uid || isAdmin());
+      allow read: if isSignedIn() && (request.auth.uid == uid || isAdmin() ||
+        resource.data.get('curatorUid', '') == request.auth.uid);      // a partner curator sees their teachers
+      // The nickname in a profile must be one this person really reserved (nicknames/{nick}.uid == uid),
+      // otherwise someone could pose as another student (messenger, «Не смогу прийти» for someone else's lesson).
       allow create: if isSignedIn() && (isAdmin() || (request.auth.uid == uid &&
-        request.resource.data.get('role', 'student') == 'student'));
-      allow update: if isSignedIn() && (isAdmin() || (request.auth.uid == uid &&
-        request.resource.data.get('role', 'student') == resource.data.get('role', 'student')));
+        request.resource.data.get('role', 'student') == 'student' &&
+        (request.resource.data.get('nickname', '') == '' || ownsNick(request.resource.data.nickname))));
+      allow update: if isSignedIn() && ((isAdmin() && (!curatorRoleChange() || hasStaffRole(['admin']))) || (request.auth.uid == uid &&
+        request.resource.data.get('role', 'student') == resource.data.get('role', 'student') &&
+        request.resource.data.get('curatorUid', '') == resource.data.get('curatorUid', '') &&
+        // paid access and the partner organisation are set by TheStarth only (a teacher may only send an application)
+        request.resource.data.get('partnerUntil', 0) == resource.data.get('partnerUntil', 0) &&
+        request.resource.data.get('partnerId', '') == resource.data.get('partnerId', '') &&
+        (request.resource.data.get('partnerStatus', '') == resource.data.get('partnerStatus', '') ||
+         (request.resource.data.get('partnerStatus', '') == 'pending' && resource.data.get('partnerStatus', '') in ['', 'rejected'])) &&
+        (request.resource.data.get('nickname', '') == resource.data.get('nickname', '') ||
+         request.resource.data.get('nickname', '') == '' || ownsNick(request.resource.data.nickname))));
       allow delete: if isAdmin();
     }
 
@@ -38,7 +103,8 @@ service cloud.firestore {
     // checkable *before* the account exists — that's the whole point.
     // Creating one still requires being signed in as that exact uid.
     match /nicknames/{nickname} {
-      allow read: if true;
+      allow get: if true;
+      allow list: if isAdmin();          // the whole list of nicknames / uids is not downloadable
       allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid;
       // the owner may release / re-point their own nickname (profile editor); an admin may clean up
       allow update, delete: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
@@ -64,8 +130,8 @@ service cloud.firestore {
     }
     match /reviews/{id} {
       allow read: if resource.data.published == true || isAdmin();
-      // Visitors can only send a review as "not published yet", with sane sizes.
-      allow create: if isAdmin() || (
+      // Signed-in people can only send a review as "not published yet", with sane sizes (no anonymous spam).
+      allow create: if isAdmin() || (isSignedIn() &&
         request.resource.data.published == false &&
         request.resource.data.keys().hasOnly(['name', 'rating', 'text', 'published', 'createdAt']) &&
         request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 80 &&
@@ -96,11 +162,12 @@ service cloud.firestore {
     }
 
     // Lesson schedule: admin assigns lessons (teacher + student + time).
-    // Public read (needed by the teacher's own unauthenticated schedule
-    // link and the student dashboard); only admins can write.
+    // Readable by signed-in people only (students and teachers load their own lessons); only admins write.
     match /schedule/{id} {
-      allow read: if true;
-      allow create, delete: if isAdmin();
+      allow read: if isSignedIn();       // not visible to the whole internet any more
+      allow create: if isAdmin() || (isPartnerCurator() && request.resource.data.teacherUid is string &&
+        curatorOf(request.resource.data.teacherUid) == request.auth.uid);
+      allow delete: if isAdmin() || (isPartnerCurator() && curatorOf(resource.data.teacherUid) == request.auth.uid);
       // The assigned teacher may also update ONE lesson: mark it done/missed and
       // leave homework — nothing else (not the date, time, student, or teacher).
       allow update: if isAdmin() || (
@@ -117,60 +184,113 @@ service cloud.firestore {
     // Site-wide settings (accent color, logo, announcement banner):
     // public read, admin-only write.
     match /settings/{doc} {
-      allow read: if true;
+      allow read: if doc != 'salary' || isAdmin() || isTeacher();   // pay rates — staff only
       allow write: if isAdmin();
     }
 
     // ── TEACHER CABINET ─────────────────────────────────────────────────────
+    // The group's main teacher (teacherUid) or a second teacher the admin added (coTeacherUids).
+    // Second teachers only LOOK (students, attendance, grades); only the main teacher writes.
+    function isStaffOf(gid) {
+      let g = get(/databases/$(database)/documents/groups/$(gid)).data;
+      return g.teacherUid == request.auth.uid || request.auth.uid in g.get('coTeacherUids', []);
+    }
     // Groups: a teacher creates and manages their own groups; a student can read the groups they are in.
     match /groups/{id} {
-      allow read: if isSignedIn() && (isAdmin() ||
+      allow read: if isSignedIn() && (isAdmin() || resource.data.get('curatorUid', '') == request.auth.uid ||
         resource.data.teacherUid == request.auth.uid ||
-        request.auth.uid in resource.data.memberUids);
+        request.auth.uid in resource.data.memberUids ||
+        request.auth.uid in resource.data.get('coTeacherUids', []));
+      // format / priceOverride decide the teacher's pay, coTeacherUids who else sees the group — only an admin sets them.
       allow create: if isSignedIn() && (isAdmin() ||
-        (isTeacher() && request.resource.data.teacherUid == request.auth.uid));
+        (isTeacherOrPartner() && partnerActive() && request.resource.data.teacherUid == request.auth.uid &&
+         request.resource.data.get('curatorUid', '') == myCuratorUid() &&
+         !('format' in request.resource.data) && !('priceOverride' in request.resource.data) &&
+         !('coTeacherUids' in request.resource.data) && !('coTeachers' in request.resource.data)) ||
+        // a partner curator creates groups for their own teachers
+        (isPartnerCurator() && request.resource.data.curatorUid == request.auth.uid &&
+         curatorOf(request.resource.data.teacherUid) == request.auth.uid &&
+         !('format' in request.resource.data) && !('priceOverride' in request.resource.data)));
       allow update: if isSignedIn() && (isAdmin() ||
-        (resource.data.teacherUid == request.auth.uid && request.resource.data.teacherUid == request.auth.uid));
-      allow delete: if isSignedIn() && (isAdmin() || resource.data.teacherUid == request.auth.uid);
+        (resource.data.teacherUid == request.auth.uid && request.resource.data.teacherUid == request.auth.uid &&
+         request.resource.data.get('format', '') == resource.data.get('format', '') &&
+         request.resource.data.get('priceOverride', 0) == resource.data.get('priceOverride', 0) &&
+         request.resource.data.get('coTeacherUids', []) == resource.data.get('coTeacherUids', []) &&
+         request.resource.data.get('coTeachers', []) == resource.data.get('coTeachers', []) &&
+         request.resource.data.get('curatorUid', '') == resource.data.get('curatorUid', '')) ||
+        (isPartnerCurator() && resource.data.get('curatorUid', '') == request.auth.uid &&
+         request.resource.data.curatorUid == request.auth.uid &&
+         curatorOf(request.resource.data.teacherUid) == request.auth.uid &&
+         request.resource.data.get('format', '') == resource.data.get('format', '') &&
+         request.resource.data.get('priceOverride', 0) == resource.data.get('priceOverride', 0)));
+      allow delete: if isSignedIn() && (isAdmin() || resource.data.teacherUid == request.auth.uid ||
+        (isPartnerCurator() && resource.data.get('curatorUid', '') == request.auth.uid));
     }
 
-    // Attendance: one document per group per day, id = "<groupId>_<yyyy-mm-dd>".
-    // Only the group's teacher writes; the teacher and the students listed in it can read.
+    // Attendance: one document per group per day, id = "<groupId>_<yyyy-mm-dd>" — a school-style journal.
+    //   teacher of the group: ONLY today's lesson (Tashkent date). Past and future days are closed to him.
+    //   curator (admin / Куратор TheStarth, or the partner curator of this group): any day.
+    // The record always carries the group's teacher in teacherUid (pay is counted from it), whoever wrote it.
+    function groupOf(gid) {
+      return get(/databases/$(database)/documents/groups/$(gid)).data;
+    }
     match /attendance/{id} {
-      allow read: if isSignedIn() && (isAdmin() ||
+      allow read: if isSignedIn() && (isAdmin() || resource.data.get('curatorUid', '') == request.auth.uid ||
         resource.data.teacherUid == request.auth.uid ||
-        request.auth.uid in resource.data.studentUids);
-      allow create, update: if isSignedIn() && (isAdmin() || (
-        isTeacher() &&
-        request.resource.data.teacherUid == request.auth.uid &&
+        request.auth.uid in resource.data.studentUids ||
+        isStaffOf(resource.data.groupId));
+      allow create, update: if isSignedIn() &&
         id == request.resource.data.groupId + '_' + request.resource.data.date &&
-        get(/databases/$(database)/documents/groups/$(request.resource.data.groupId)).data.teacherUid == request.auth.uid));
-      allow delete: if isSignedIn() && (isAdmin() || resource.data.teacherUid == request.auth.uid);
+        request.resource.data.teacherUid == groupOf(request.resource.data.groupId).teacherUid &&
+        request.resource.data.get('curatorUid', '') in ['', groupOf(request.resource.data.groupId).get('curatorUid', '')] && (
+          hasStaffRole(['admin', 'curator']) ||
+          (isPartnerCurator() && groupOf(request.resource.data.groupId).get('curatorUid', '') == request.auth.uid) ||
+          (isTeacherOrPartner() && request.resource.data.teacherUid == request.auth.uid &&
+           request.resource.data.date == tashkentToday()));
+      allow delete: if isSignedIn() && (hasStaffRole(['admin', 'curator']) ||
+        (isPartnerCurator() && resource.data.get('curatorUid', '') == request.auth.uid) ||
+        (resource.data.teacherUid == request.auth.uid &&
+         (resource.data.date == tashkentToday() || !existsAfter(/databases/$(database)/documents/groups/$(resource.data.groupId)))));
     }
 
     // Grades (0-10): written by the group's teacher; readable by that teacher and by the graded student.
     match /grades/{id} {
-      allow read: if isSignedIn() && (isAdmin() ||
+      allow read: if isSignedIn() && (isAdmin() || resource.data.get('curatorUid', '') == request.auth.uid ||
         resource.data.teacherUid == request.auth.uid ||
-        resource.data.studentUid == request.auth.uid);
+        resource.data.studentUid == request.auth.uid ||
+        isStaffOf(resource.data.groupId));
       allow create: if isSignedIn() && (isAdmin() || (
-        isTeacher() &&
+        isTeacherOrPartner() &&
         request.resource.data.teacherUid == request.auth.uid &&
+        request.resource.data.get('curatorUid', '') in ['', get(/databases/$(database)/documents/groups/$(request.resource.data.groupId)).data.get('curatorUid', '')] &&
         request.resource.data.score is number &&
         request.resource.data.score >= 0 && request.resource.data.score <= 10 &&
         get(/databases/$(database)/documents/groups/$(request.resource.data.groupId)).data.teacherUid == request.auth.uid));
       allow update: if isAdmin();
-      allow delete: if isSignedIn() && (isAdmin() || resource.data.teacherUid == request.auth.uid);
+      allow delete: if isSignedIn() && (isAdmin() || resource.data.teacherUid == request.auth.uid ||
+        (isPartnerCurator() && resource.data.get('curatorUid', '') == request.auth.uid));
     }
 
-    // Lesson whiteboard. Everybody in the room can SEE it. Only the teacher who opened the board
-    // (teacherUid) and the people the teacher switched on (allowed / allowAll) can DRAW.
+    // Lesson whiteboard. Every teacher (teacher / partner / curator) and every admin is a "host" of any board:
+    // draws, gives / takes drawing rights, clears it. teacherUid is only the lead teacher (a teacher may take
+    // the lead over, nobody can hand it to someone else). Students draw only when a host allows them.
+    function boardDoc(room) {
+      return get(/databases/$(database)/documents/lessonBoards/$(room)).data;
+    }
+    function boardHost(room) {
+      return isSignedIn() && (boardDoc(room).teacherUid == request.auth.uid || isTeacherOrPartner() || isAdmin());
+    }
+    function boardWriter(room) {
+      return isSignedIn() && (boardDoc(room).get('allowAll', false) == true ||
+        request.auth.uid in boardDoc(room).get('allowed', []) || boardHost(room));
+    }
+
     match /lessonBoards/{room} {
       allow read: if true;
-      allow create: if isSignedIn() && isTeacher() && request.resource.data.teacherUid == request.auth.uid;
+      allow create: if isSignedIn() && (isTeacherOrPartner() || isAdmin()) && request.resource.data.teacherUid == request.auth.uid;
       allow update: if isAdmin() || (isSignedIn() &&
-        resource.data.teacherUid == request.auth.uid &&
-        request.resource.data.teacherUid == resource.data.teacherUid);
+        (resource.data.teacherUid == request.auth.uid || isTeacherOrPartner()) &&
+        (request.resource.data.teacherUid == resource.data.teacherUid || request.resource.data.teacherUid == request.auth.uid));
       allow delete: if isAdmin();
 
       match /strokes/{strokeId} {
@@ -179,20 +299,14 @@ service cloud.firestore {
           request.resource.data.uid == request.auth.uid &&
           request.resource.data.pts.size() >= 2 && request.resource.data.pts.size() <= 400 &&
           (!('text' in request.resource.data) || request.resource.data.text.size() <= 300) &&
-          (get(/databases/$(database)/documents/lessonBoards/$(room)).data.teacherUid == request.auth.uid ||
-           get(/databases/$(database)/documents/lessonBoards/$(room)).data.get('allowAll', false) == true ||
-           request.auth.uid in get(/databases/$(database)/documents/lessonBoards/$(room)).data.get('allowed', []));
-        // Text can be edited / moved by its author or by the board's teacher (while they still may write).
+          boardWriter(room);
+        // Text can be edited / moved by its author or by any host (while they still may write).
         allow update: if isSignedIn() && ('text' in resource.data) &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['pts', 'text', 'ts']) &&
           request.resource.data.pts.size() == 2 && request.resource.data.text.size() <= 300 &&
-          (resource.data.uid == request.auth.uid ||
-           get(/databases/$(database)/documents/lessonBoards/$(room)).data.teacherUid == request.auth.uid) &&
-          (get(/databases/$(database)/documents/lessonBoards/$(room)).data.teacherUid == request.auth.uid ||
-           get(/databases/$(database)/documents/lessonBoards/$(room)).data.get('allowAll', false) == true ||
-           request.auth.uid in get(/databases/$(database)/documents/lessonBoards/$(room)).data.get('allowed', []));
-        allow delete: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin() ||
-          get(/databases/$(database)/documents/lessonBoards/$(room)).data.teacherUid == request.auth.uid);
+          (resource.data.uid == request.auth.uid || boardHost(room)) &&
+          boardWriter(room);
+        allow delete: if isSignedIn() && (resource.data.uid == request.auth.uid || boardHost(room));
       }
 
       // "Who is in the room" — each signed-in person writes only their own entry.
@@ -219,7 +333,7 @@ service cloud.firestore {
         request.resource.data.uid == uid &&
         exists(/databases/$(database)/documents/users/$(uid)) &&
         request.resource.data.nickname == get(/databases/$(database)/documents/users/$(uid)).data.get('nickname', '') &&
-        request.resource.data.role == (get(/databases/$(database)/documents/users/$(uid)).data.get('role', 'student') == 'teacher' ? 'teacher' : 'student')));
+        request.resource.data.role == (get(/databases/$(database)/documents/users/$(uid)).data.get('role', 'student') in ['teacher', 'partner', 'curator', 'partner_curator'] ? 'teacher' : 'student')));
       allow delete: if isAdmin();
     }
 
@@ -276,7 +390,7 @@ service cloud.firestore {
     // readable only by the addressee. chat/ = lesson chat.
     match /lessonCalls/{room} {
       allow read: if isSignedIn();
-      allow create, update: if isAdmin() || isTeacher();
+      allow create, update: if isAdmin() || isTeacherOrPartner();
       allow delete: if isAdmin();
 
       match /peers/{uid} {
@@ -293,7 +407,7 @@ service cloud.firestore {
         allow read: if isSignedIn();
         allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid &&
           request.resource.data.text is string && request.resource.data.text.size() <= 500;
-        allow delete: if isAdmin() || isTeacher();
+        allow delete: if isAdmin() || isTeacherOrPartner();
       }
     }
 
@@ -301,14 +415,17 @@ service cloud.firestore {
     // Created by the teacher when they enter the room; closed with "Закончить урок". Everybody in the lesson writes ONLY
     // their own attendee entry (minutes spent). Readable by the teacher of that lesson and by admins.
     match /lessonSessions/{sid} {
-      allow read: if isSignedIn() && (isAdmin() || resource.data.teacherUid == request.auth.uid);
-      allow create: if isSignedIn() && isTeacher() && request.resource.data.teacherUid == request.auth.uid;
+      allow read: if isSignedIn() && (isAdmin() || resource.data.teacherUid == request.auth.uid ||
+        resource.data.get('curatorUid', '') == request.auth.uid);
+      allow create: if isSignedIn() && isTeacherOrPartner() && partnerActive() && request.resource.data.teacherUid == request.auth.uid &&
+        request.resource.data.get('curatorUid', '') in ['', myCuratorUid()];
       allow update: if isSignedIn() && (isAdmin() || resource.data.teacherUid == request.auth.uid);
       allow delete: if isAdmin();
 
       match /attendees/{uid} {
         allow read: if isSignedIn() && (uid == request.auth.uid || isAdmin() ||
-          get(/databases/$(database)/documents/lessonSessions/$(sid)).data.teacherUid == request.auth.uid);
+          get(/databases/$(database)/documents/lessonSessions/$(sid)).data.teacherUid == request.auth.uid ||
+          get(/databases/$(database)/documents/lessonSessions/$(sid)).data.get('curatorUid', '') == request.auth.uid);
         allow create, update: if isSignedIn() && uid == request.auth.uid &&
           exists(/databases/$(database)/documents/lessonSessions/$(sid));
         allow delete: if isAdmin();
@@ -357,6 +474,42 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
+    // IELTS Speaking with AI (speaking.html). A student saves their own result (the AI marks it, the page saves it);
+    // the student reads their own, teachers and admins read all; only admins edit or delete.
+    match /speakingResults/{id} {
+      allow create: if isSignedIn() &&
+        request.resource.data.uid == request.auth.uid &&
+        request.resource.data.keys().hasOnly(['uid', 'name', 'kind', 'topic', 'overall', 'fc', 'lr', 'gra', 'pr', 'words', 'wpm', 'secs',
+          'summary', 'strengths', 'improve', 'mistakes', 'vocab', 'sample', 'parts', 'transcript', 'ts']) &&
+        request.resource.data.kind in ['exam', 'practice'] &&
+        request.resource.data.name is string && request.resource.data.name.size() <= 80 &&
+        request.resource.data.topic is string && request.resource.data.topic.size() <= 120 &&
+        request.resource.data.overall is number && request.resource.data.overall >= 0 && request.resource.data.overall <= 9 &&
+        request.resource.data.summary is string && request.resource.data.summary.size() <= 700 &&
+        request.resource.data.transcript is list && request.resource.data.transcript.size() <= 120 &&
+        request.resource.data.mistakes is list && request.resource.data.mistakes.size() <= 8 &&
+        request.resource.data.vocab is list && request.resource.data.vocab.size() <= 6;
+      allow read: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin() || isTeacher());
+      allow update, delete: if isAdmin();
+    }
+
+    // AI Support Teacher mini-tests (ai-teacher.html). The student saves their own score (the page marks the test);
+    // the student reads their own, teachers and admins read all; only admins edit or delete.
+    match /tutorQuizzes/{id} {
+      allow create: if isSignedIn() &&
+        request.resource.data.uid == request.auth.uid &&
+        request.resource.data.keys().hasOnly(['uid', 'name', 'nickname', 'subject', 'topic', 'score', 'total', 'wrong', 'ts']) &&
+        request.resource.data.subject in ['english', 'ielts', 'sat', 'math', 'other'] &&
+        request.resource.data.name is string && request.resource.data.name.size() <= 80 &&
+        request.resource.data.nickname is string && request.resource.data.nickname.size() <= 40 &&
+        request.resource.data.topic is string && request.resource.data.topic.size() <= 140 &&
+        request.resource.data.total is int && request.resource.data.total >= 1 && request.resource.data.total <= 10 &&
+        request.resource.data.score is int && request.resource.data.score >= 0 && request.resource.data.score <= request.resource.data.total &&
+        request.resource.data.wrong is list && request.resource.data.wrong.size() <= 8;
+      allow read: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin() || isTeacher());
+      allow update, delete: if isAdmin();
+    }
+
     // Writing work written on the site. A student adds their own work (always as 'new') and reads their own;
     // teachers and admins read all and add the evaluation (only the feedback fields can change); only admins delete.
     match /mockWritings/{id} {
@@ -374,6 +527,132 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // «Не смогу прийти»: a student warns the teacher about missing a lesson (site or Telegram bot).
+    // Excused (= the lesson is not paid to the teacher) only when the notice is made at least 24 h before the lesson —
+    // checked here against the server clock, so it cannot be faked. The Telegram worker writes with a service account.
+    match /absences/{id} {
+      allow read: if isSignedIn() && (isAdmin() || resource.data.uid == request.auth.uid || resource.data.teacherUid == request.auth.uid);
+      allow create: if isSignedIn() &&
+        request.resource.data.uid == request.auth.uid &&
+        request.resource.data.keys().hasOnly(['uid', 'nickname', 'name', 'groupId', 'scheduleId', 'teacherUid', 'date', 'dateNum', 'time', 'lessonAt', 'title', 'reason', 'excused', 'createdAt', 'via']) &&
+        request.resource.data.via == 'site' &&
+        request.resource.data.createdAt == request.time &&
+        request.resource.data.lessonAt is timestamp &&
+        request.resource.data.lessonAt > request.time &&
+        request.resource.data.lessonAt < request.time + duration.value(60, 'd') &&
+        request.resource.data.excused == (request.resource.data.lessonAt >= request.time + duration.value(24, 'h')) &&
+        request.resource.data.dateNum == (request.resource.data.lessonAt + duration.value(5, 'h')).year() * 10000 + (request.resource.data.lessonAt + duration.value(5, 'h')).month() * 100 + (request.resource.data.lessonAt + duration.value(5, 'h')).day() &&
+        request.resource.data.reason is string && request.resource.data.reason.size() <= 200 &&
+        (
+          (request.resource.data.groupId is string && request.resource.data.groupId != '' &&
+           request.auth.uid in get(/databases/$(database)/documents/groups/$(request.resource.data.groupId)).data.memberUids &&
+           request.resource.data.teacherUid == get(/databases/$(database)/documents/groups/$(request.resource.data.groupId)).data.teacherUid &&
+           id == request.resource.data.groupId + '_' + request.resource.data.date + '_' + request.auth.uid)
+          ||
+          (request.resource.data.scheduleId is string && request.resource.data.scheduleId != '' &&
+           get(/databases/$(database)/documents/schedule/$(request.resource.data.scheduleId)).data.studentNickname == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.nickname &&
+           request.resource.data.teacherUid == get(/databases/$(database)/documents/schedule/$(request.resource.data.scheduleId)).data.teacherUid &&
+           id == 's_' + request.resource.data.scheduleId + '_' + request.resource.data.date + '_' + request.auth.uid)
+        );
+      allow update: if isAdmin();
+      allow delete: if isSignedIn() && (isAdmin() || (resource.data.uid == request.auth.uid && resource.data.lessonAt > request.time));
+    }
+
+    // ── ONLINE OLYMPIAD (Admin panel → «Олимпиада», page olympiad.html) ─────────────────────
+    // olympiads/{id}: public once the admin confirmed and published it (questions WITHOUT answers).
+    // olympiadKeys/{id}: the answer key — only admins ever read it; participants are marked in the admin panel.
+    // olympiadAttempts/{oid_uid}: one attempt per person; the timer starts at the server time of creation, answers can be
+    // saved while it runs (+2 min grace) and handed in once; scores / places are written by the admin.
+    match /olympiads/{id} {
+      allow read: if resource.data.published == true || isAdmin();
+      allow write: if hasStaffRole(['admin']);
+    }
+    // olympiadRegs/{oid_uid}: registration before the start (region, district, school, class). A person writes only
+    // their own, while the olympiad is published and not over; admins read all (protocol, numbers by region).
+    match /olympiadRegs/{id} {
+      allow read: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create, update: if isSignedIn() &&
+        request.resource.data.uid == request.auth.uid &&
+        id == request.resource.data.oid + '_' + request.auth.uid &&
+        request.resource.data.keys().hasOnly(['oid', 'uid', 'name', 'nickname', 'region', 'district', 'school', 'grade', 'at']) &&
+        request.resource.data.name is string && request.resource.data.name.size() <= 80 &&
+        request.resource.data.nickname is string && request.resource.data.nickname.size() <= 40 &&
+        request.resource.data.region is string && request.resource.data.region.size() > 0 && request.resource.data.region.size() <= 40 &&
+        request.resource.data.district is string && request.resource.data.district.size() > 0 && request.resource.data.district.size() <= 60 &&
+        request.resource.data.school is string && request.resource.data.school.size() > 0 && request.resource.data.school.size() <= 80 &&
+        request.resource.data.grade is string && request.resource.data.grade.size() > 0 && request.resource.data.grade.size() <= 10 &&
+        request.resource.data.at == request.time &&
+        get(/databases/$(database)/documents/olympiads/$(request.resource.data.oid)).data.published == true &&
+        request.time.toMillis() <= get(/databases/$(database)/documents/olympiads/$(request.resource.data.oid)).data.endAt;
+      allow delete: if hasStaffRole(['admin']);
+    }
+    match /olympiadKeys/{id} {
+      allow read, write: if hasStaffRole(['admin']);
+    }
+    match /olympiadAttempts/{id} {
+      allow read: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() &&
+        request.resource.data.uid == request.auth.uid &&
+        id == request.resource.data.oid + '_' + request.auth.uid &&
+        request.resource.data.keys().hasOnly(['oid', 'uid', 'name', 'nickname', 'startedAt', 'status', 'answers', 'leaves', 'region', 'district', 'school', 'grade']) &&
+        request.resource.data.get('region', '') is string && request.resource.data.get('region', '').size() <= 40 &&
+        request.resource.data.get('district', '') is string && request.resource.data.get('district', '').size() <= 60 &&
+        request.resource.data.get('school', '') is string && request.resource.data.get('school', '').size() <= 80 &&
+        request.resource.data.get('grade', '') is string && request.resource.data.get('grade', '').size() <= 10 &&
+        request.resource.data.status == 'started' &&
+        request.resource.data.startedAt == request.time &&
+        request.resource.data.answers is map && request.resource.data.answers.size() == 0 &&
+        request.resource.data.name is string && request.resource.data.name.size() <= 80 &&
+        request.resource.data.nickname is string && request.resource.data.nickname.size() <= 40 &&
+        get(/databases/$(database)/documents/olympiads/$(request.resource.data.oid)).data.published == true &&
+        request.time.toMillis() >= get(/databases/$(database)/documents/olympiads/$(request.resource.data.oid)).data.startAt &&
+        request.time.toMillis() <= get(/databases/$(database)/documents/olympiads/$(request.resource.data.oid)).data.endAt;
+      allow update: if hasStaffRole(['admin']) || (isSignedIn() &&
+        resource.data.uid == request.auth.uid &&
+        resource.data.status == 'started' &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['answers', 'leaves', 'status', 'submittedAt']) &&
+        request.resource.data.status in ['started', 'submitted'] &&
+        (request.resource.data.status == 'started' || request.resource.data.submittedAt == request.time) &&
+        request.resource.data.answers is map && request.resource.data.answers.size() <= 300 &&
+        request.time < resource.data.startedAt +
+          duration.value(get(/databases/$(database)/documents/olympiads/$(resource.data.oid)).data.durationMin + 2, 'm'));
+      allow delete: if hasStaffRole(['admin']);
+    }
+
+    // Teacher pay: bonuses / fines and «paid» marks. The teacher reads their own; only an admin writes.
+    match /salaryAdjust/{id} {
+      allow read: if isSignedIn() && (isAdmin() || resource.data.teacherUid == request.auth.uid);
+      allow write: if hasStaffRole(['admin', 'finance']);
+    }
+    match /payouts/{id} {
+      allow read: if isSignedIn() && (isAdmin() || resource.data.teacherUid == request.auth.uid);
+      allow write: if hasStaffRole(['admin', 'finance']);
+    }
+
+    // Partner organisations (Admin panel → «Партнёры» → «Создать партнёра»): name, curator, teachers, paid period.
+    // The partner curator reads his own organisation; only a full admin creates and changes them.
+    match /partners/{id} {
+      allow read: if isAdmin() || (isSignedIn() && resource.data.curatorUid == request.auth.uid);
+      allow write: if hasStaffRole(['admin']);
+    }
+
+    // Curator's notes to a teacher (Admin panel → «Контроль учителей»): note / warning / thanks.
+    // Staff write them; the teacher reads their own and may only mark them as read (readAt).
+    match /curatorNotes/{id} {
+      allow read: if isSignedIn() && (isAdmin() || resource.data.teacherUid == request.auth.uid ||
+        resource.data.get('curatorUid', '') == request.auth.uid);
+      allow create: if (isAdmin() || (isPartnerCurator() && request.resource.data.curatorUid == request.auth.uid &&
+          curatorOf(request.resource.data.teacherUid) == request.auth.uid)) &&
+        request.resource.data.keys().hasOnly(['teacherUid', 'teacherName', 'kind', 'text', 'byUid', 'byName', 'ts', 'readAt', 'curatorUid']) &&
+        request.resource.data.byUid == request.auth.uid &&
+        request.resource.data.kind in ['note', 'warn', 'praise'] &&
+        request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 1000;
+      allow update: if isAdmin() || (isSignedIn() &&
+        resource.data.teacherUid == request.auth.uid &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readAt']));
+      allow delete: if isAdmin() || (isPartnerCurator() && resource.data.get('curatorUid', '') == request.auth.uid);
+    }
+
     // Admin allowlist: existing admins can promote/demote other admins
     // from the admin panel. The very first admin still has to be added
     // by hand in the Firebase console (see FIREBASE_SETUP.md, step 6) —
@@ -381,13 +660,21 @@ service cloud.firestore {
     // Admins are secret: a person can read only their own record; admins can read all. Only an admin writes.
     match /admins/{uid} {
       allow read: if isSignedIn() && (request.auth.uid == uid || isAdmin());
-      allow write: if isAdmin();
+      allow write: if hasStaffRole(['admin']);      // a curator / content / finance person cannot hand out access (or raise their own)
     }
 
     // ── PRESENCE (online / in a lesson). Heartbeat document, one per person.
     match /presence/{uid} {
       allow read: if isSignedIn();
       allow write: if isSignedIn() && request.auth.uid == uid;
+    }
+
+    // Promo codes (Admin panel -> «Промокоды»): % discount or fully-free, with an optional expiry date.
+    // Public read so the pricing block and the payment page can check a code; only an admin can write.
+    match /promoCodes/{code} {
+      allow get: if true;                // a typed code can be checked…
+      allow list: if isAdmin();          // …but the list of all codes is not downloadable
+      allow write: if hasStaffRole(['admin', 'finance']);
     }
   }
 }

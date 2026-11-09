@@ -129,5 +129,7 @@
 
     setSound(); sync();
     if (reduced) { showStill(); frame.classList.add('is-live', 'is-chips'); skipBtn.hidden = true; soundBtn.hidden = true; return; }
-    start();
+    // While the "swarm rebuild" intro (swarm.js) assembles the page, the video waits until its frame is placed.
+    if (window.__swarmHold) window.addEventListener('swarm:intro', () => { try { v.currentTime = 0; } catch (e) {} start(); }, { once: true });
+    else start();
 })();

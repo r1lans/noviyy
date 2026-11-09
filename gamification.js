@@ -111,7 +111,7 @@
     function celebrate(all) {
         if (!all.length) return;
         const items = all.slice(0, 4);
-        if (all.length > 4) items.push({ icon: 'sparkles', title: 'И ещё ' + (all.length - 4), text: 'Все новые бейджи — в разделе «Мой прогресс».' });
+        if (all.length > 4) items.push({ icon: 'sparkles', title: 'И ещё ' + (all.length - 4), text: 'Все новые бейджи — в разделе «Мой прогресс» → «Уровень и бейджи».' });
         const pop = document.createElement('div');
         pop.className = 'gm-pop';
         const conf = Array.from({ length: 26 }, (_, i) => `<i style="left:${(i * 37) % 100}%;animation-delay:${(i % 9) * 0.12}s;background:${['#C99A3B', '#8F5A0C', '#1e8449', '#1f5fbf', '#c0392b'][i % 5]}"></i>`).join('');
@@ -149,7 +149,7 @@
         if (goal.date) { daysLeft = Math.ceil((new Date(goal.date + 'T23:59:59') - new Date()) / 86400000); }
 
         box.innerHTML = `
-        <h2 class="dash-section-title">Мой прогресс</h2>
+        <h2 class="dash-section-title">Уровень и бейджи</h2>
         <div class="gm-hero">
             <div class="gm-level"><div class="gm-level-icon">${ico(L.cur.icon)}</div>
                 <div class="gm-level-body">
@@ -195,7 +195,7 @@
         <div class="gm-cols">
             <div class="gm-card">
                 <h3>Лента XP</h3>
-                ${m.events.length ? m.events.slice(0, 8).map((e) => `<div class="gm-event"><span class="gm-xp">+${e.xp}</span><div style="flex:1;min-width:0;overflow-wrap:anywhere;">${esc(e.text)}</div><span class="tc-meta">${esc(fmtDate(e.date))}</span></div>`).join('') : '<div class="tc-empty" style="padding:0;">Пока пусто. Посетите урок, пройдите тест или пригласите друга — XP начислятся сами.</div>'}
+                ${m.events.length ? m.events.slice(0, 8).map((e) => `<div class="gm-event"><span class="gm-xp">+${e.xp}</span><div style="flex:1;min-width:0;overflow-wrap: break-word;">${esc(e.text)}</div><span class="tc-meta">${esc(fmtDate(e.date))}</span></div>`).join('') : '<div class="tc-empty" style="padding:0;">Пока пусто. Посетите урок, пройдите тест или пригласите друга — XP начислятся сами.</div>'}
             </div>
             <div class="gm-card">
                 <h3>Как заработать XP</h3>

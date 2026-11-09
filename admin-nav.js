@@ -1,6 +1,6 @@
 /* TheStarth — "Админ-панель" link in the navbar.
  * Invisible to everyone. Appears only once someone is signed in AND is listed
- * in the `admins` collection (the same check admin.html itself uses) — an
+ * in the `admins` collection (or is a partner curator, users.role 'partner_curator') (the same check admin itself uses) — an
  * ordinary student account never sees it, on any page or in any theme.
  * Requires firebase-config.js (and the firebase-*-compat scripts) to be
  * loaded before this file.
@@ -25,7 +25,7 @@
             if (nav.querySelector('.admin-nav-link')) return;   // already there (e.g. two navs on the page)
             ensureStyle();
             var a = document.createElement('a');
-            a.href = 'admin.html';
+            a.href = 'admin';
             a.className = 'admin-nav-link';
             a.innerHTML = ICON + 'Админ-панель';
             var langSwitch = nav.querySelector('.lang-switch');
@@ -43,7 +43,11 @@
         auth.onAuthStateChanged(function (user) {
             if (!user) { removeLink(); return; }
             db.collection('admins').doc(user.uid).get().then(function (doc) {
-                if (doc.exists) addLink(); else removeLink();
+                if (doc.exists) return addLink();
+                // partner curator: not in admins/, but has his own (limited) admin panel
+                return db.collection('users').doc(user.uid).get().then(function (u) {
+                    if (u.exists && (u.data() || {}).role === 'partner_curator') addLink(); else removeLink();
+                });
             }).catch(function () { removeLink(); });
         });
     }

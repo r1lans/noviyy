@@ -3,112 +3,345 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <script src="theme.js"></script>
+    <script src="theme.js?v=92"></script>
+    <script src="ui-dialogs.js?v=92"></script>
+    <!-- speed: open connections early and pre-load pages the visitor is about to open (hover / touch) -->
+    <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <script type="speculationrules">{"prefetch":[{"where":{"and":[{"href_matches":"/*"},{"not":{"href_matches":"/*\\?*logout*"}}]},"eagerness":"moderate"}]}</script>
     <title>Админ-панель — TheStarth</title>
     <meta name="robots" content="noindex, nofollow">
-    <link rel="icon" type="image/png" href="images/favicon.png">
-    <link rel="apple-touch-icon" href="images/apple-touch-icon.png">
-    <link rel="stylesheet" href="styles.css?v=37">
+    <link rel="icon" href="/favicon.ico" sizes="any">
+    <link rel="icon" type="image/png" sizes="48x48" href="/images/favicon-48.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="/images/favicon-192.png">
+    <link rel="manifest" href="/site.webmanifest">
+    <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon.png">
+    <link rel="stylesheet" href="styles.css?v=92">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&family=Fraunces:opsz,wght@9..144,600..900&display=swap" rel="stylesheet">
     <style>
         body { background: var(--paper-alt); }
-        .admin-wrap { max-width: 1240px; margin: 0 auto; padding: 2rem 1.5rem 5rem; }
-        .admin-header { padding-right: 56px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; }
-        .admin-header h1 { font-size: 1.6rem; }
-        .admin-hd-left { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; min-width: 0; }
-        .admin-back { text-decoration: none; white-space: nowrap; display: inline-block; }
-        .admin-hint { color: var(--ink-soft); font-size: .88rem; line-height: 1.5; margin: -.4rem 0 1.1rem; max-width: 70ch; }
-        @media (max-width: 560px) { .admin-header { flex-wrap: wrap; gap: .6rem; } .admin-header h1 { font-size: 1.25rem; } }
+        .admin-wrap { min-height: 100vh; }
+        .admin-hint { color: var(--ink-soft); font-size: .92rem; line-height: 1.55; margin: .35rem 0 0; max-width: 72ch; }
 
-        #login-screen { max-width: 380px; margin: 6rem auto; text-align: center; }
+        /* ── Login / setup ── */
+        #login-screen { max-width: 400px; margin: 0 auto; padding: 6rem 1.25rem 3rem; text-align: center; }
+        #login-screen .login-card { background: var(--surface); border: 1px solid var(--rule); border-radius: 20px; padding: 2rem 1.6rem; box-shadow: 0 20px 50px rgba(var(--shadow-rgb), .08); margin-top: 1rem; }
         #login-screen input {
-            width: 100%; padding: 0.9rem; border-radius: 8px; border: 1px solid var(--rule);
-            background: var(--surface); color: var(--ink); font-size: 1rem; margin: 0.75rem 0;
+            width: 100%; padding: 0.9rem; border-radius: 10px; border: 1px solid var(--rule);
+            background: var(--paper); color: var(--ink); font-size: 1rem; margin: 0.4rem 0;
         }
         #login-error { color: var(--accent-warm); font-size: 0.85rem; min-height: 1.2em; margin: 0.5rem 0; }
         #setup-warning {
             display: none; max-width: 500px; margin: 4rem auto; text-align: center;
-            background: var(--surface); border: 1px solid var(--rule); border-radius: 12px; padding: 2rem;
+            background: var(--surface); border: 1px solid var(--rule); border-radius: 16px; padding: 2rem;
         }
 
+        /* ── Shell: sidebar + main ── */
         #dashboard { display: none; }
-        .admin-layout { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 1.75rem; align-items: start; }
-        .admin-side { position: sticky; top: 1rem; display: flex; flex-direction: column; gap: 2px; background: var(--surface); border: 1px solid var(--rule); border-radius: 14px; padding: 0.6rem; }
-        .admin-grp { font-size: 0.68rem; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-soft); padding: 0.8rem 0.7rem 0.3rem; }
-        .admin-grp:first-child { padding-top: 0.4rem; }
-        .admin-side .admin-tab { text-align: left; background: none; border: 0; border-radius: 9px; padding: 0.55rem 0.7rem; font: inherit; font-size: 0.92rem; color: var(--ink); cursor: pointer; border-bottom: 0; }
-        .admin-side .admin-tab:hover { background: var(--accent-tint); }
-        .admin-side .admin-tab.active { background: var(--accent); color: var(--on-accent); font-weight: 700; }
-        .admin-ptitle { font-size: 1.35rem; margin: 0 0 1rem; }
-        .admin-content { min-width: 0; }
-        .admin-row { display: flex; align-items: center; gap: 1rem; background: var(--surface); border: 1px solid var(--rule); border-radius: 12px; padding: 0.8rem 1rem; margin-bottom: 0.6rem; flex-wrap: wrap; }
+        .adm-shell { display: grid; grid-template-columns: 264px minmax(0, 1fr); min-height: 100vh; }
+        .admin-side {
+            position: sticky; top: 0; height: 100vh; overflow-y: auto; display: flex; flex-direction: column;
+            background: var(--surface); border-right: 1px solid var(--rule); padding: 1.1rem .8rem 1rem;
+        }
+        .adm-brand { display: flex; align-items: center; gap: .7rem; padding: .3rem .55rem 1.1rem; text-decoration: none; color: var(--ink); }
+        .adm-brand-logo { width: 40px; height: 40px; border-radius: 12px; background: var(--accent); color: var(--on-accent); display: grid; place-items: center; flex-shrink: 0; }
+        .adm-brand-logo svg { width: 22px; height: 22px; }
+        .adm-brand b { display: block; font-family: var(--font-heading); font-size: 1.15rem; line-height: 1.1; }
+        .adm-brand small { display: block; color: var(--ink-soft); font-size: .75rem; letter-spacing: .02em; }
+        .admin-grp { font-size: .68rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-soft); padding: 1rem .7rem .35rem; opacity: .85; }
+        .admin-side .admin-tab {
+            display: flex; align-items: center; gap: .7rem; width: 100%; text-align: left; background: none; border: 0;
+            border-radius: 10px; padding: .52rem .65rem; font: inherit; font-size: .93rem; color: var(--ink); cursor: pointer;
+            transition: background .15s, color .15s; position: relative;
+        }
+        .admin-side .admin-tab .ti { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; background: var(--paper-alt); color: var(--ink-soft); flex-shrink: 0; transition: inherit; }
+        .admin-side .admin-tab .ti svg { width: 17px; height: 17px; }
+        .admin-side .admin-tab:hover { background: var(--paper-alt); }
+        .admin-side .admin-tab.active { background: var(--accent-tint); color: var(--accent); font-weight: 700; }
+        .admin-side .admin-tab.active .ti { background: var(--accent); color: var(--on-accent); }
+        .admin-side .admin-tab .new { margin-left: auto; font-size: .62rem; font-weight: 800; background: var(--accent); color: var(--on-accent); border-radius: 99px; padding: 1px 7px; letter-spacing: .04em; }
+        .adm-side-foot { margin-top: auto; padding-top: 1rem; display: flex; gap: .5rem; border-top: 1px solid var(--rule); margin-left: .3rem; margin-right: .3rem; }
+        .adm-side-foot > * { flex: 1; text-align: center; text-decoration: none; }
+
+        .admin-content { min-width: 0; padding: 1.8rem 4.6rem 5rem 2.4rem; max-width: 1220px; width: 100%; }
+        .adm-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin: 0 0 1.6rem; }
+        .adm-crumb { font-size: .74rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); margin-bottom: .25rem; }
+        .admin-ptitle { font-size: 1.85rem; margin: 0; line-height: 1.15; }
+        .adm-mtop { display: none; }
+        .adm-scrim { display: none; }
+
+        @media (max-width: 900px) {
+            .adm-shell { grid-template-columns: 1fr; }
+            .admin-side { position: fixed; left: 0; top: 0; bottom: 0; width: min(300px, 86vw); z-index: 60; transform: translateX(-105%); transition: transform .25s ease; box-shadow: 0 0 40px rgba(0,0,0,.25); }
+            .adm-open .admin-side { transform: none; }
+            .adm-open .adm-scrim { display: block; position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 55; }
+            .adm-mtop { display: flex; align-items: center; gap: .7rem; position: sticky; top: 0; z-index: 40; background: var(--nav-bg); backdrop-filter: blur(10px); border-bottom: 1px solid var(--rule); padding: .65rem 64px .65rem .9rem; margin: -1.2rem -1rem 1rem; }
+            .adm-mtop button { display: inline-flex; align-items: center; gap: .45rem; border: 1px solid var(--rule); background: var(--surface); color: var(--ink); border-radius: 10px; padding: .5rem .8rem; font: inherit; font-weight: 600; cursor: pointer; }
+            .adm-mtop span { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .admin-content { padding: 1.2rem 1rem 4rem; }
+            .adm-head { padding-right: 0; }
+            .admin-ptitle { font-size: 1.45rem; }
+        }
+
+        .admin-tabs { display: flex; gap: 0.5rem; margin-bottom: 2rem; border-bottom: 1px solid var(--rule); flex-wrap: wrap; }
+        .admin-panel { display: none; }
+        .admin-panel.active { display: block; animation: admIn .2s ease; }
+        @keyframes admIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+        /* ── Home ── */
+        .adm-hello { background: linear-gradient(135deg, var(--accent-tint), var(--surface)); border: 1px solid var(--rule); border-radius: 18px; padding: 1.5rem 1.6rem; margin-bottom: 1.6rem; }
+        .adm-hello h3 { font-size: 1.3rem; margin: 0 0 .3rem; }
+        .adm-hello p { color: var(--ink-soft); margin: 0 0 1rem; }
+        .adm-quick { display: flex; flex-wrap: wrap; gap: .55rem; }
+        .adm-quick button { border: 1px solid var(--accent); background: var(--surface); color: var(--accent); border-radius: 999px; padding: .5rem 1rem; font: inherit; font-size: .9rem; font-weight: 600; cursor: pointer; transition: background .15s, color .15s; }
+        .adm-quick button:hover { background: var(--accent); color: var(--on-accent); }
+        .adm-home-grp { font-size: .78rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-soft); margin: 1.6rem 0 .7rem; }
+        .adm-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: .8rem; }
+        .adm-tile { display: flex; gap: .85rem; align-items: flex-start; text-align: left; background: var(--surface); border: 1px solid var(--rule); border-radius: 14px; padding: 1rem; cursor: pointer; font: inherit; color: var(--ink); transition: border-color .15s, transform .15s, box-shadow .15s; }
+        .adm-tile:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 10px 24px rgba(var(--shadow-rgb), .07); }
+        .adm-tile .ti { width: 40px; height: 40px; border-radius: 11px; background: var(--accent-tint); color: var(--accent); display: grid; place-items: center; flex-shrink: 0; }
+        .adm-tile .ti svg { width: 20px; height: 20px; }
+        .adm-tile b { display: block; font-size: .98rem; margin-bottom: .15rem; }
+        .adm-tile small { display: block; color: var(--ink-soft); font-size: .82rem; line-height: 1.4; }
+
+        /* ── Add bar / forms ── */
+        .adm-addbar { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.2rem; }
+        .adm-addbar .btn-primary { padding: .75rem 1.3rem; }
+        .adm-muted { color: var(--ink-soft); font-size: .85rem; }
+        .adm-form-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin: -.2rem 0 .6rem; }
+        .adm-form-head h3 { font-size: 1.15rem; margin: 0; }
+        .adm-x { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--rule); background: var(--paper); color: var(--ink-soft); cursor: pointer; font-size: .9rem; flex-shrink: 0; }
+        .adm-x:hover { color: var(--ink); border-color: var(--ink-soft); }
+        .adm-listhead { display: flex; align-items: center; gap: .5rem; font-size: 1.05rem; margin: 1.8rem 0 .8rem; }
+        .adm-count { font-family: var(--font-main); font-size: .78rem; background: var(--paper); border: 1px solid var(--rule); border-radius: 99px; padding: 1px 9px; color: var(--ink-soft); }
+        .adm-count:empty { display: none; }
+        #blg-list { margin-top: .8rem; }
+        .adm-help, .admin-form p.adm-help { color: var(--ink-soft); font-size: .8rem; line-height: 1.45; margin: .35rem 0 0; }
+        .adm-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 1rem; }
+        .admin-form .adm-grid2 > div > label { margin-top: .95rem; }
+        @media (max-width: 640px) { .adm-grid2 { grid-template-columns: 1fr; } }
+        .adm-step { display: flex; align-items: center; gap: .55rem; font-weight: 700; font-size: .95rem; margin: 1.3rem 0 .1rem; color: var(--ink); }
+        .adm-step:first-child { margin-top: 0; }
+        .adm-step span { width: 24px; height: 24px; border-radius: 50%; background: var(--accent); color: var(--on-accent); font-size: .78rem; display: grid; place-items: center; }
+        .adm-seg { display: inline-flex; flex-wrap: wrap; gap: 4px; background: var(--paper-alt); border: 1px solid var(--rule); border-radius: 12px; padding: 4px; margin: .7rem 0 .2rem; }
+        .adm-seg button { border: 0; background: none; color: var(--ink-soft); border-radius: 9px; padding: .45rem .85rem; font: inherit; font-size: .86rem; font-weight: 600; cursor: pointer; }
+        .adm-seg button.on { background: var(--surface); color: var(--accent); box-shadow: 0 1px 4px rgba(var(--shadow-rgb), .12); }
+        .adm-check { display: flex !important; align-items: center; gap: .55rem; color: var(--ink) !important; font-size: .92rem !important; margin-top: 1.2rem !important; cursor: pointer; }
+        .adm-check input { width: 18px !important; height: 18px; accent-color: var(--accent); }
+        .adm-actions { display: flex; gap: .75rem; margin-top: 1.2rem; flex-wrap: wrap; align-items: center; }
+        .adm-split { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 1.8rem; align-items: start; }
+        .adm-split-side { position: sticky; top: 1rem; }
+        .adm-preview-label { font-size: .74rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-soft); margin-bottom: .6rem; }
+        .adm-blog-preview .blog-card:hover { transform: none; }
+        .adm-blog-preview .blog-body { padding: 1.4rem; }
+        @media (max-width: 1100px) { .adm-split { grid-template-columns: 1fr; } .adm-split-side { position: static; max-width: 380px; } }
+        .adm-flash { padding: .7rem 1rem; border-radius: 10px; background: var(--accent-tint); margin: 0 0 .8rem; }
+
+        /* ── List items ── */
+        .adm-item { display: flex; gap: 1rem; align-items: flex-start; background: var(--surface); border: 1px solid var(--rule); border-radius: 14px; padding: 1rem; margin-bottom: .75rem; transition: border-color .15s; }
+        .adm-item:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--rule)); }
+        .adm-item.is-off { opacity: .62; }
+        .adm-item-cover { width: 168px; aspect-ratio: 1200 / 632; object-fit: cover; border-radius: 10px; background: var(--paper-alt); border: 1px solid var(--rule); flex-shrink: 0; }
+        .adm-item-main { flex: 1; min-width: 0; }
+        .adm-item-main h3 { font-size: 1.02rem; margin: .35rem 0 .2rem; }
+        .adm-item-main .meta { color: var(--ink-soft); font-size: .82rem; margin-bottom: .7rem; word-break: break-word; }
+        .adm-item-top { display: flex; gap: .3rem; flex-wrap: wrap; align-items: center; }
+        .adm-pill { font-size: .7rem; font-weight: 700; border-radius: 99px; padding: 2px 9px; }
+        .adm-pill.on { background: rgba(46, 160, 67, .14); color: #2e9a43; }
+        .adm-pill.off { background: var(--paper-alt); color: var(--ink-soft); border: 1px solid var(--rule); }
+        @media (max-width: 600px) { .adm-item { flex-direction: column; } .adm-item-cover { width: 100%; } }
+
+        .admin-row { display: flex; align-items: center; gap: 1rem; background: var(--surface); border: 1px solid var(--rule); border-radius: 14px; padding: 0.85rem 1rem; margin-bottom: 0.6rem; flex-wrap: wrap; transition: border-color .15s; }
+        .admin-row:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--rule)); }
         .admin-row .ar-av { width: 40px; height: 40px; border-radius: 50%; background: var(--accent); color: var(--on-accent); display: inline-flex; align-items: center; justify-content: center; font-weight: 800; flex-shrink: 0; }
         .admin-row .ar-main { flex: 1 1 260px; min-width: 0; }
         .admin-row .ar-actions { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
         .ar-admin.on { background: var(--accent); color: var(--on-accent); }
+        .adm-filter .les-only { display: inline-flex !important; flex: 0 0 auto; flex-direction: row; align-items: center; gap: .45rem; font-size: .88rem; align-self: flex-end; padding: 0 0 .7rem; margin: 0; white-space: nowrap; color: var(--ink); }
+        .adm-filter .les-only input { width: 18px !important; height: 18px; margin: 0 !important; padding: 0 !important; flex: 0 0 auto; accent-color: var(--accent); }
+        .les-sum { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: .6rem; margin: .8rem 0; }
+        .les-tile { background: var(--paper-alt); border: 1px solid var(--rule); border-radius: 12px; padding: .7rem .8rem; } .les-tile b { display: block; font-size: 1.2rem; } .les-tile span { color: var(--ink-soft); font-size: .78rem; }
+        .les-tile.live b { color: #1e8449; } .les-tile.bad b { color: #c0392b; }
+        .les-tt { border: 1px solid var(--rule); border-radius: 12px; overflow: hidden; margin-bottom: 1rem; }
+        .les-tr { display: grid; grid-template-columns: 2fr 1fr 1.2fr 1.2fr 1fr; gap: .5rem; width: 100%; padding: .55rem .8rem; border: 0; border-top: 1px solid var(--rule); background: var(--paper); color: var(--ink); font: inherit; font-size: .88rem; text-align: left; cursor: pointer; }
+        .les-th { background: var(--paper-alt); color: var(--ink-soft); font-size: .75rem; text-transform: uppercase; border-top: 0; cursor: default; } .les-bad { color: #c0392b; font-weight: 700; }
+        .les-day { font-weight: 700; margin: 1rem 0 .4rem; color: var(--ink-soft); font-size: .85rem; text-transform: capitalize; }
+        .les-row { display: grid; grid-template-columns: 64px 1fr auto; gap: .8rem; align-items: center; background: var(--paper); border: 1px solid var(--rule); border-radius: 12px; padding: .7rem .9rem; margin-bottom: .5rem; }
+        .les-time b { display: block; font-size: 1.05rem; } .les-time small, .les-main small { color: var(--ink-soft); font-size: .8rem; }
+        .les-main { min-width: 0; } .les-main b { display: block; overflow-wrap: break-word; }
+        .les-bar { height: 6px; background: var(--rule); border-radius: 99px; overflow: hidden; margin: .35rem 0; } .les-bar i { display: block; height: 100%; background: #1e8449; border-radius: 99px; } .les-bar.low i { background: #d68910; }
+        .les-chips { display: flex; gap: .3rem; flex-wrap: wrap; } .les-chip { font-size: .72rem; font-weight: 700; border-radius: 99px; padding: .1rem .55rem; }
+        .les-chip.ok { background: rgba(30,132,73,.12); color: #1e8449; } .les-chip.live { background: rgba(31,95,191,.12); color: #1f5fbf; } .les-chip.bad { background: rgba(192,57,43,.12); color: #c0392b; }
+        .les-dur { text-align: right; display: flex; flex-direction: column; gap: .35rem; align-items: flex-end; } .les-dur b { white-space: nowrap; }
+        .les-det { grid-column: 1 / -1; border-top: 1px dashed var(--rule); padding-top: .5rem; }
+        .les-att { display: grid; grid-template-columns: 1fr 120px auto; gap: .7rem; align-items: center; padding: .3rem 0; font-size: .88rem; } .les-att small { color: var(--ink-soft); } .les-att strong { white-space: nowrap; font-size: .82rem; }
+        @media (max-width: 640px) { .les-row { grid-template-columns: 52px 1fr; } .les-dur { grid-column: 1 / -1; flex-direction: row; justify-content: space-between; align-items: center; } .les-tr { grid-template-columns: 1.6fr .7fr 1fr; } .les-tr span:nth-child(4), .les-tr span:nth-child(5) { display: none; } .les-att { grid-template-columns: 1fr 70px; } .les-att strong { grid-column: 1 / -1; } }
+        .ar-staff { max-width: 210px; } .ar-staff.on { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+        .adm-role-note { margin: 0 .6rem .6rem; padding: .45rem .7rem; border-radius: 10px; background: var(--accent-tint, rgba(176,122,14,.12)); color: var(--accent); font-size: .8rem; font-weight: 700; }
         .ar-badge { background: var(--accent); color: var(--on-accent); font-size: .68rem; padding: .1rem .45rem; border-radius: 99px; vertical-align: middle; font-weight: 700; }
         .admin-row .ar-main strong { display: block; font-size: 0.98rem; }
         .admin-row .ar-main small { color: var(--ink-soft); font-size: 0.8rem; word-break: break-word; }
         .admin-row .ar-extra { font-size: 0.8rem; color: var(--ink-soft); }
         .admin-row select { max-width: 170px; }
-        @media (max-width: 860px) {
-            .admin-layout { grid-template-columns: 1fr; gap: 1rem; }
-            .admin-side { position: static; flex-direction: row; flex-wrap: nowrap; overflow-x: auto; gap: 4px; padding: 0.4rem; -webkit-overflow-scrolling: touch; }
-            .admin-grp { display: none; }
-            .admin-side .admin-tab { white-space: nowrap; flex: 0 0 auto; }
-            .admin-wrap { padding: 1rem 0.9rem 4rem; }
-        }
-        .admin-tabs { display: flex; gap: 0.5rem; margin-bottom: 2rem; border-bottom: 1px solid var(--rule); flex-wrap: wrap; }
-        .admin-tab {
-            padding: 0.8rem 1.3rem; background: none; border: none; cursor: pointer;
-            font-family: var(--font-heading); font-weight: 700; color: var(--ink-soft);
-            border-bottom: 2px solid transparent; margin-bottom: -1px; font-size: 0.95rem;
-        }
-        .admin-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
-        .admin-panel { display: none; }
-        .admin-panel.active { display: block; }
 
         .admin-card {
-            background: var(--surface); border: 1px solid var(--rule); border-radius: 12px;
-            padding: 1.5rem; margin-bottom: 1.25rem;
+            background: var(--surface); border: 1px solid var(--rule); border-radius: 14px;
+            padding: 1.15rem 1.25rem; margin-bottom: .75rem; transition: border-color .15s;
         }
-        .admin-card h3 { font-size: 1rem; margin-bottom: 0.25rem; }
-        .admin-card .meta { color: var(--ink-soft); font-size: 0.8rem; margin-bottom: 0.75rem; }
-        .admin-card p { color: var(--ink); font-size: 0.92rem; line-height: 1.6; margin-bottom: 1rem; }
-        .admin-card-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+        .admin-card:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--rule)); }
+        .admin-card h3 { font-size: 1.02rem; margin-bottom: 0.25rem; }
+        .admin-card .meta { color: var(--ink-soft); font-size: 0.82rem; margin-bottom: 0.6rem; }
+        .admin-card p { color: var(--ink); font-size: 0.92rem; line-height: 1.6; margin-bottom: .9rem; }
+        .admin-card-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
         .btn-small {
-            font-size: 0.82rem; padding: 0.4rem 0.9rem; border-radius: 6px; cursor: pointer;
-            border: 1px solid var(--rule); background: var(--paper); color: var(--ink);
+            display: inline-flex; align-items: center; justify-content: center; gap: .35rem;
+            font: inherit; font-size: 0.83rem; font-weight: 600; padding: 0.42rem 0.85rem; border-radius: 8px; cursor: pointer;
+            border: 1px solid var(--rule); background: var(--surface); color: var(--ink); transition: background .15s, border-color .15s, color .15s;
         }
-        .btn-small.danger { color: var(--accent-warm); border-color: var(--accent-warm); }
-        .btn-small.primary { color: var(--accent); border-color: var(--accent); }
+        .btn-small:hover:not(:disabled) { border-color: var(--ink-soft); }
+        .btn-small:disabled { opacity: .4; cursor: default; }
+        .btn-small.danger { color: var(--accent-warm); border-color: color-mix(in srgb, var(--accent-warm) 45%, var(--rule)); }
+        .btn-small.danger:hover:not(:disabled) { background: var(--accent-warm); color: #fff; border-color: var(--accent-warm); }
+        .btn-small.primary { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, var(--rule)); background: var(--accent-tint); }
+        .btn-small.primary:hover:not(:disabled) { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
         .pending-badge {
-            display: inline-block; background: var(--accent-warm); color: var(--on-accent); font-size: 0.7rem;
+            display: inline-block; background: var(--accent-warm); color: #fff; font-size: 0.7rem;
             padding: 2px 8px; border-radius: 10px; margin-left: 0.5rem; vertical-align: middle;
         }
 
-        .admin-form { background: var(--surface); border: 1px dashed var(--rule); border-radius: 12px; padding: 1.5rem; margin-bottom: 2rem; }
-        .admin-form label { display: block; font-size: 0.85rem; color: var(--ink-soft); margin: 0.9rem 0 0.3rem; }
+        .admin-form { background: var(--surface); border: 1px solid var(--rule); border-radius: 16px; padding: 1.4rem 1.5rem; margin-bottom: 1.5rem; box-shadow: 0 6px 22px rgba(var(--shadow-rgb), .05); }
+        .admin-form[hidden] { display: none !important; }
+        .admin-form label { display: block; font-size: 0.84rem; font-weight: 600; color: var(--ink); margin: 0.95rem 0 0.35rem; }
         .admin-form label:first-child { margin-top: 0; }
         .admin-form input, .admin-form textarea, .admin-form select {
-            width: 100%; padding: 0.7rem; border-radius: 8px; border: 1px solid var(--rule);
-            background: var(--paper); color: var(--ink); font-family: var(--font-main); font-size: 0.95rem;
+            width: 100%; padding: 0.68rem 0.8rem; border-radius: 10px; border: 1px solid var(--rule);
+            background: var(--paper); color: var(--ink); font-family: var(--font-main); font-size: 0.95rem; transition: border-color .15s, box-shadow .15s;
         }
+        .admin-form input:focus, .admin-form textarea:focus, .admin-form select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-tint); }
+        .admin-form input[type=file] { padding: .5rem; }
         .admin-form textarea { min-height: 90px; resize: vertical; }
-        .status-msg { font-size: 0.85rem; margin-top: 0.75rem; min-height: 1.2em; }
+        .admin-form > p:not(.adm-help) { color: var(--ink-soft) !important; font-size: .8rem !important; line-height: 1.45; }
+        .admin-form.adm-filter { display: flex; gap: .75rem; flex-wrap: wrap; align-items: flex-end; padding: .9rem 1rem; box-shadow: none; margin-bottom: 1rem; }
+        .admin-form.adm-filter label { margin-top: 0; font-size: .78rem; color: var(--ink-soft); }
+        .status-msg { font-size: 0.86rem; margin-top: 0.75rem; min-height: 1.2em; }
         .status-msg.ok { color: var(--accent); }
         .status-msg.error { color: var(--accent-warm); }
         .toggle-row { display: flex; align-items: center; gap: 0.6rem; margin: 0.9rem 0 0.3rem; }
-        .empty-state { color: var(--ink-soft); text-align: center; padding: 2rem; font-size: 0.9rem; }
-            .score-rows { display: grid; grid-template-columns: 1fr 100px; gap: 0.5rem; }
-        .img-preview img { display: block; max-width: 100%; max-height: 180px; margin-top: 0.75rem; border-radius: 8px; border: 1px solid var(--rule); background: #fff; }
+        .empty-state { color: var(--ink-soft); text-align: center; padding: 2.2rem 1rem; font-size: 0.9rem; background: var(--surface); border: 1px dashed var(--rule); border-radius: 14px; }
+        .score-rows { display: grid; grid-template-columns: 1fr 100px; gap: 0.5rem; }
+        .img-preview img { display: block; max-width: 100%; max-height: 180px; margin-top: 0.75rem; border-radius: 10px; border: 1px solid var(--rule); background: #fff; }
         .vid-progress { height: 8px; background: var(--paper-alt); border: 1px solid var(--rule); border-radius: 999px; overflow: hidden; margin-top: 1rem; }
         .vid-progress-bar { height: 100%; width: 0; background: var(--accent); transition: width 0.2s; }
         .admin-vid-thumb { width: 72px; aspect-ratio: 9 / 16; object-fit: cover; border-radius: 10px; border: 1px solid var(--rule); background: #0b0b0b; flex-shrink: 0; }
-        .admin-thumb { width: 84px; height: 84px; object-fit: cover; border-radius: 10px; border: 1px solid var(--rule); background: var(--paper-alt); flex-shrink: 0; }
+        .admin-thumb { width: 84px; height: 84px; object-fit: cover; border-radius: 12px; border: 1px solid var(--rule); background: var(--paper-alt); flex-shrink: 0; }
         .admin-card-row { display: flex; gap: 1rem; align-items: flex-start; }
         .admin-card-row > div { flex: 1; min-width: 0; }
-        .chip { display: inline-block; font-size: 0.72rem; padding: 2px 8px; border-radius: 999px; background: var(--accent-tint); color: var(--accent); border: 1px solid var(--accent); margin-right: 4px; }
+        .admin-content select, .admin-content input[type=search] { padding: .45rem .6rem; border-radius: 9px; border: 1px solid var(--rule); background: var(--surface); color: var(--ink); font: inherit; font-size: .88rem; }
+        .admin-content select:focus, .admin-content input[type=search]:focus { outline: none; border-color: var(--accent); }
+        .chip { display: inline-block; font-size: 0.72rem; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--accent-tint); color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); margin-right: 4px; }
+
+        /* ── olympiad ── */
+        .oly-top, .oly-qtop, .oly-bottom { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin-bottom: .8rem; }
+        .oly-sp { flex: 1; }
+        .oly-qtop h3 { margin: .4rem 0; } .oly-qtop h3 small { color: var(--ink-soft); font-weight: 500; font-size: .85rem; }
+        .oly-bottom { position: sticky; bottom: 0; background: var(--paper); padding: .7rem 0; border-top: 1px solid var(--rule); margin-top: .5rem; z-index: 2; }
+        .oly-ch { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; } .oly-ch h3 { margin: 0; }
+        .oly-st { font-size: .74rem; font-weight: 700; padding: .2rem .55rem; border-radius: 999px; background: var(--paper-alt); color: var(--ink-soft); }
+        .oly-st.live { background: rgba(30,132,73,.14); color: #1e8449; } .oly-st.soon { background: var(--accent-tint); color: var(--accent); } .oly-st.done { background: rgba(214,137,16,.15); color: #b9770e; }
+        .oly-filt { display:flex; flex-wrap:wrap; gap:.7rem; align-items:center; margin:0 0 .7rem; } .oly-filt label { display:flex; align-items:center; gap:.4rem; font-size:.85rem; } .oly-filt select { padding:.35rem .5rem; border:1px solid var(--rule); border-radius:8px; background:var(--paper); color:var(--ink); font:inherit; }
+        .oly-an { margin-top:1rem; } .oly-an summary { cursor:pointer; font-weight:700; margin-bottom:.5rem; }
+        .oly-rgrid { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:1rem; } .oly-rgrid h4 { margin:0 0 .6rem; }
+        .oly-rb { display:grid; grid-template-columns:minmax(120px,1.2fr) 2fr 48px; gap:.5rem; align-items:center; font-size:.86rem; margin:.25rem 0; } .oly-rb i { display:block; height:9px; border-radius:99px; background:var(--accent); min-width:3px; } .oly-rb b { text-align:right; }
+        .oly-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: .6rem .9rem; } .oly-wide { grid-column: 1 / -1; }
+        .oly-chk { display: flex; align-items: center; gap: .5rem; font-size: .9rem; } .oly-chk input { width: auto; }
+        .oly-q { background: var(--surface); border: 1px solid var(--rule); border-radius: 14px; padding: .8rem .9rem; margin-bottom: .6rem; display: flex; flex-direction: column; gap: .45rem; }
+        .oly-q textarea, .oly-q input[type=text], .oly-q input[type=number], .oly-q select { width: 100%; box-sizing: border-box; font: inherit; font-size: .92rem; padding: .55rem .7rem; border-radius: 10px; border: 1px solid var(--rule); background: var(--paper-alt); color: var(--ink); }
+        .oly-q textarea { resize: vertical; min-height: 64px; line-height: 1.45; } .oly-q label { font-size: .82rem; color: var(--ink-soft); }
+        .oly-qh { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; } .oly-qh select { width: auto; max-width: 260px; }
+        .oly-q .oly-pts input { width: 70px; }
+        .oly-pts { display: inline-flex; align-items: center; gap: .3rem; font-size: .85rem; margin: 0; } .oly-pts input { width: 70px; }
+        .oly-x { border: 1px solid var(--rule); background: var(--paper); color: var(--ink-soft); border-radius: 8px; width: 30px; height: 30px; cursor: pointer; font-size: 1rem; line-height: 1; flex: 0 0 auto; }
+        .oly-x:hover { color: var(--ink); border-color: var(--ink-soft); } .oly-x.danger:hover { color: #c0392b; border-color: #c0392b; }
+        .oly-opts { display: flex; flex-direction: column; gap: .35rem; align-items: flex-start; } .oly-opt { display: flex; align-items: center; gap: .4rem; width: 100%; } .oly-opt input[type=text] { flex: 1; }
+        .oly-ok { position: relative; margin: 0; } .oly-ok input { position: absolute; opacity: 0; width: 0; height: 0; }
+        .oly-ok span { width: 32px; height: 32px; border-radius: 50%; border: 2px solid var(--rule); display: grid; place-items: center; font-weight: 700; cursor: pointer; font-size: .85rem; }
+        .oly-ok input:checked + span { background: #1e8449; border-color: #1e8449; color: #fff; }
+        .oly-hint { color: var(--ink-soft); font-size: .78rem; }
+
+        /* ── groups: create + members ── */
+        .grp-new { margin-bottom: 1rem; } .grp-new summary { cursor: pointer; list-style: none; } .grp-new summary::-webkit-details-marker { display: none; }
+        .grp-new summary small { color: var(--ink-soft); font-weight: 400; } .grp-new[open] summary { margin-bottom: .8rem; }
+        .grp-new-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: .6rem .8rem; }
+        .grp-days { display: flex; flex-wrap: wrap; gap: .35rem; }
+        .grp-day { position: relative; } .grp-day input { position: absolute; opacity: 0; width: 0; height: 0; }
+        .grp-day span { display: inline-block; padding: .4rem .75rem; border-radius: 999px; border: 1px solid var(--rule); cursor: pointer; font-weight: 600; font-size: .85rem; }
+        .grp-day input:checked + span { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+        .grp-members { display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; margin: .3rem 0 .7rem; }
+        .grp-m { display: inline-flex; align-items: center; gap: .3rem; padding: .2rem .25rem .2rem .6rem; border-radius: 999px; background: var(--paper-alt); border: 1px solid var(--rule); font-size: .82rem; }
+        .grp-m small { color: var(--ink-soft); } .grp-m button { border: 0; background: transparent; color: var(--ink-soft); cursor: pointer; font-size: 1rem; line-height: 1; padding: 0 .3rem; border-radius: 50%; } .grp-m button:hover { color: #c0392b; }
+        .grp-add { display: inline-flex; gap: .3rem; align-items: center; } .grp-add input { width: 170px; padding: .35rem .6rem; font-size: .85rem; }
+
+        /* ── Контроль учителей (curator) ── */
+        .cur-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: .7rem; margin-bottom: 1rem; }
+        .cur-tile { display: flex; gap: .7rem; align-items: center; background: var(--surface); border: 1px solid var(--rule); border-radius: 14px; padding: .8rem .9rem; }
+        .cur-ti { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; background: var(--accent-tint); color: var(--accent); flex: 0 0 auto; }
+        .cur-ti .ico { width: 20px; height: 20px; }
+        .cur-tile .t { font-size: .72rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--ink-soft); }
+        .cur-tile .v { font-size: 1.45rem; font-weight: 800; line-height: 1.15; }
+        .cur-tile small { color: var(--ink-soft); font-size: .78rem; }
+        .cur-tile.bad .cur-ti { background: rgba(192,57,43,.12); color: #c0392b; } .cur-tile.bad .v { color: #c0392b; }
+        .cur-tile.warn .cur-ti { background: rgba(214,137,16,.14); color: #b9770e; }
+        .cur-tile.ok .cur-ti { background: rgba(30,132,73,.12); color: #1e8449; }
+        .cur-tile.live .cur-ti { background: #c0392b; color: #fff; }
+        .cur-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: .8rem; }
+        .cur-card { background: var(--surface); border: 1px solid var(--rule); border-radius: 16px; padding: .95rem 1rem; display: flex; flex-direction: column; gap: .65rem; }
+        .cur-card.has-issues { border-left: 4px solid #d68910; }
+        .cur-head { display: flex; align-items: center; gap: .65rem; }
+        .cur-av { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; background: var(--accent); color: var(--on-accent); font-weight: 800; flex: 0 0 auto; }
+        .cur-who { flex: 1; min-width: 0; display: flex; flex-direction: column; } .cur-who b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .cur-who small { color: var(--ink-soft); font-size: .8rem; }
+        .cur-pres { display: inline-flex; align-items: center; gap: .3rem; font-size: .75rem; font-weight: 600; color: var(--ink-soft); white-space: nowrap; }
+        .cur-pres i { width: 8px; height: 8px; border-radius: 50%; background: #9aa0a6; } .cur-pres.online i { background: #2ecc71; } .cur-pres.lesson i { background: #c0392b; } .cur-pres.lesson { color: #c0392b; }
+        .cur-live { display: flex; align-items: center; gap: .45rem; font-size: .85rem; font-weight: 600; color: #c0392b; background: rgba(192,57,43,.08); border-radius: 10px; padding: .4rem .6rem; }
+        .cur-live i { width: 9px; height: 9px; border-radius: 50%; background: #c0392b; animation: curBlink 1s infinite; } @keyframes curBlink { 50% { opacity: .25; } }
+        .cur-nums { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .4rem; }
+        .cur-nums div { background: var(--paper-alt); border-radius: 10px; padding: .45rem .5rem; text-align: center; }
+        .cur-nums b { display: block; font-size: 1.05rem; } .cur-nums span { font-size: .68rem; color: var(--ink-soft); line-height: 1.2; display: block; }
+        .cur-chips { display: flex; flex-wrap: wrap; gap: .3rem; }
+        .cur-chip { display: inline-block; font-size: .74rem; font-weight: 600; padding: .2rem .5rem; border-radius: 999px; background: var(--paper-alt); color: var(--ink-soft); }
+        .cur-chip.bad { background: rgba(192,57,43,.12); color: #c0392b; } .cur-chip.warn { background: rgba(214,137,16,.15); color: #b9770e; }
+        .cur-chip.ok { background: rgba(30,132,73,.12); color: #1e8449; } .cur-chip.live { background: #c0392b; color: #fff; }
+        .cur-acts { display: flex; flex-wrap: wrap; gap: .4rem; } .cur-acts.end { justify-content: flex-end; margin-top: .8rem; }
+        .cur-acts .btn-small { text-decoration: none; } .cur-acts .ico { width: 1em; height: 1em; }
+        .cur-nc { font-size: .72rem; color: var(--ink-soft); font-weight: 500; }
+        .cur-upd { color: var(--ink-soft); font-size: .8rem; margin-top: .8rem; }
+        .cur-ov { position: fixed; inset: 0; z-index: 9000; background: rgba(10,12,16,.55); display: flex; align-items: flex-start; justify-content: center; padding: 4vh 1rem; overflow-y: auto; }
+        .cur-modal { position: relative; width: min(860px, 100%); background: var(--paper); color: var(--ink); border: 1px solid var(--rule); border-radius: 18px; padding: 1.3rem 1.4rem; box-shadow: 0 24px 60px rgba(0,0,0,.35); }
+        .cur-modal h3 { font-size: 1rem; margin: 1.1rem 0 .5rem; }
+        .cur-mh { font-size: 1.25rem; margin: 0 2.4rem .2rem 0; display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+        .cur-ms { color: var(--ink-soft); font-size: .88rem; margin: 0; }
+        .cur-x { position: absolute; top: .8rem; right: .8rem; width: 34px; height: 34px; border-radius: 10px; border: 0; background: transparent; color: var(--ink-soft); cursor: pointer; display: grid; place-items: center; }
+        .cur-x:hover { background: var(--paper-alt); } .cur-x .ico { width: 18px; height: 18px; }
+        .cur-tw { overflow-x: auto; } .cur-t { width: 100%; border-collapse: collapse; font-size: .86rem; }
+        .cur-t th { text-align: left; font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-soft); padding: .4rem .5rem; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+        .cur-t td { padding: .5rem; border-bottom: 1px dashed var(--rule); vertical-align: top; } .cur-t td small { display: block; color: var(--ink-soft); font-size: .76rem; }
+        .cur-notes { display: flex; flex-direction: column; gap: .45rem; }
+        .cur-note { display: flex; gap: .6rem; align-items: flex-start; padding: .6rem .75rem; border-radius: 12px; background: var(--paper-alt); border: 1px solid var(--rule); }
+        .cur-note > .ico { width: 20px; height: 20px; margin-top: .1rem; color: var(--accent); flex: 0 0 auto; }
+        .cur-note.warn > .ico { color: #c0392b; } .cur-note.praise > .ico { color: #1e8449; }
+        .cur-note > div { flex: 1; min-width: 0; } .cur-note small { color: var(--ink-soft); } .cur-note p { margin: .25rem 0 0; font-size: .9rem; white-space: pre-line; }
+        .cur-read { color: #1e8449; } .cur-unread { color: #b9770e; font-weight: 600; }
+        .cur-del { border: 0; background: transparent; color: var(--ink-soft); cursor: pointer; padding: .2rem; border-radius: 8px; } .cur-del:hover { color: #c0392b; } .cur-del .ico { width: 16px; height: 16px; }
+        .cur-kinds { display: flex; flex-wrap: wrap; gap: .4rem; margin: .9rem 0 .6rem; }
+        .cur-kind { display: inline-flex; align-items: center; gap: .4rem; padding: .45rem .8rem; border-radius: 999px; border: 1px solid var(--rule); cursor: pointer; font-size: .88rem; font-weight: 600; }
+        .cur-kind input { position: absolute; opacity: 0; width: 0; height: 0; } .cur-kind .ico { width: 1em; height: 1em; }
+        .cur-kind:has(input:checked) { border-color: var(--accent); background: var(--accent-tint); color: var(--accent); }
+        .cur-kind.warn:has(input:checked) { border-color: #c0392b; background: rgba(192,57,43,.1); color: #c0392b; }
+        .cur-kind.praise:has(input:checked) { border-color: #1e8449; background: rgba(30,132,73,.1); color: #1e8449; }
+        .cur-ta { width: 100%; min-height: 120px; resize: vertical; font: inherit; padding: .7rem .8rem; border-radius: 12px; border: 1px solid var(--rule); background: var(--surface); color: var(--ink); line-height: 1.5; box-sizing: border-box; }
+        .cur-link { display: inline-flex; align-items: center; gap: .35rem; margin-top: .5rem; border: 0; background: none; color: var(--accent); font: inherit; font-size: .85rem; cursor: pointer; padding: 0; text-align: left; }
+        .cur-link .ico { width: 1em; height: 1em; flex: 0 0 auto; }
+        @media (max-width: 560px) { .cur-grid { grid-template-columns: 1fr; } .cur-nums { grid-template-columns: repeat(2, 1fr); } .cur-modal { padding: 1.1rem 1rem; } }
     </style>
 </head>
 <body>
@@ -125,9 +358,11 @@
         </div>
 
         <div id="login-screen">
-            <a class="btn-small" href="index.html" style="text-decoration:none;display:inline-block;margin-bottom:1rem">← Назад на сайт</a>
-            <h1 style="font-size: 1.8rem;">Вход в админ-панель</h1>
-            <p style="color: var(--ink-soft); margin-top: 0.5rem;">TheStarth · CMS</p>
+            <a class="btn-small" href="./" style="text-decoration:none;display:inline-block;margin-bottom:1rem">← Назад на сайт</a>
+            <div class="login-card">
+            <span class="adm-brand-logo" style="margin:0 auto 1rem;width:52px;height:52px;border-radius:15px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 2.6 5.6 6.1.7-4.5 4.2 1.2 6L12 16.6 6.6 19.5l1.2-6-4.5-4.2 6.1-.7z"/></svg></span>
+            <h1 style="font-size: 1.6rem;">Вход в админ-панель</h1>
+            <p style="color: var(--ink-soft); margin: 0.4rem 0 1rem;">TheStarth</p>
             <input type="email" id="login-email" placeholder="Email администратора" autocomplete="username">
             <input type="password" id="login-password" placeholder="Пароль" autocomplete="current-password">
             <div id="login-error"></div>
@@ -136,42 +371,126 @@
                 Это тот же аккаунт, которым вы зарегистрировались на сайте —
                 просто он должен быть добавлен в список админов (см. FIREBASE_SETUP.md, шаг 6).
             </p>
+            </div>
         </div>
 
         <div id="dashboard">
-            <div class="admin-header">
-                <div class="admin-hd-left"><a class="btn-small admin-back" href="index.html" onclick="if(history.length>1&&document.referrer&&document.referrer.indexOf(location.host)>-1){history.back();return false}">← Назад на сайт</a>
-                <h1>Админ-панель <span class="text-premium">TheStarth</span></h1></div>
-                <button class="btn-small" onclick="logout()">Выйти</button>
+            <div class="adm-shell" id="adm-shell">
+            <nav class="admin-side" id="admin-side" aria-label="Разделы админ-панели">
+                <a class="adm-brand" href="./"><span class="adm-brand-logo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 2.6 5.6 6.1.7-4.5 4.2 1.2 6L12 16.6 6.6 19.5l1.2-6-4.5-4.2 6.1-.7z"/></svg></span><span><b>TheStarth</b><small>Админ-панель</small></span></a>
+                <button class="admin-tab active" data-tab="home" data-grp="" onclick="switchTab('home')"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg></span><span class="tl">Главная</span></button>
+                <div class="admin-grp">Сайт</div>
+                <button class="admin-tab" data-tab="catalog" data-grp="Сайт" onclick="switchTab('catalog')"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg></span><span class="tl">Курсы и цены</span></button>
+                <button class="admin-tab" data-tab="teachers" data-grp="Сайт" onclick="switchTab('teachers')"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg></span><span class="tl">Учителя на сайте</span></button>
+                <button class="admin-tab" data-tab="blog" data-grp="Сайт" onclick="switchTab('blog')"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h12l4 4v12H4z"/><path d="M8 10h8M8 14h8M8 18h5"/></svg></span><span class="tl">Блог и статьи</span></button>
+                <button class="admin-tab" data-tab="news" data-grp="Сайт" onclick="switchTab('news')"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h13v14a2 2 0 0 0 2 2H6a2 2 0 0 1-2-2z"/><path d="M17 9h3v10a2 2 0 0 1-2 2"/><path d="M8 9h5M8 13h5M8 17h3"/></svg></span><span class="tl">Новости</span></button>
+                <button class="admin-tab" data-tab="reviews" data-grp="Сайт" onclick="switchTab('reviews')"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg></span><span class="tl">Отзывы</span></button>
+                <button class="admin-tab" data-tab="results" data-grp="Сайт" onclick="switchTab('results')"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="9" r="6"/><path d="m8.5 14-1.5 7 5-3 5 3-1.5-7"/></svg></span><span class="tl">Результаты учеников</span></button>
+                <button class="admin-tab" data-tab="videos" data-grp="Сайт" onclick="switchTab('videos')"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="15" height="14" rx="2"/><path d="m22 8-5 4 5 4z"/></svg></span><span class="tl">Видео на главной</span></button>
+                <button class="admin-tab" data-tab="announcement" data-grp="Сайт" onclick="switchTab('announcement')"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11v2a1 1 0 0 0 1 1h3l5 4V6L7 10H4a1 1 0 0 0-1 1z"/><path d="M16 8a5 5 0 0 1 0 8M19 5a9 9 0 0 1 0 14"/></svg></span><span class="tl">Баннер сверху</span></button>
+                <button class="admin-tab" data-tab="promo" data-grp="Сайт" onclick="switchTab('promo')"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9a2 2 0 0 0 0 6v3a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1v-3a2 2 0 0 1 0-6V6a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1z"/><path d="M14 5v14" stroke-dasharray="2 2"/></svg></span><span class="tl">Промокоды</span></button>
+                <div class="admin-grp">Ученики и уроки</div>
+                <button class="admin-tab" data-tab="control" data-grp="Ученики и уроки" onclick="switchTab('control')"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4.5 6v5.5c0 4.6 3.2 8.4 7.5 9.5 4.3-1.1 7.5-4.9 7.5-9.5V6z"/><path d="m8.8 12.2 2.2 2.2 4.4-4.6"/></svg></span><span class="tl">Контроль учителей</span></button>
+                <button class="admin-tab" data-tab="students" data-grp="Ученики и уроки" onclick="switchTab('students')"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14c2.2.6 3.5 2.8 3.5 6"/></svg></span><span class="tl">Ученики и роли</span></button>
+                <button class="admin-tab" data-tab="journal" data-grp="Ученики и уроки" onclick="switchTab('journal')"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h12a2 2 0 0 1 2 2v16H7a2 2 0 0 1-2-2z"/><path d="M5 17a2 2 0 0 1 2-2h12"/><path d="m8.5 10 2 2 4-4.5"/></svg></span><span class="tl">Журнал оценок</span></button>
+                <button class="admin-tab" data-tab="attendance" data-grp="Ученики и уроки" onclick="switchTab('attendance')"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/><path d="m8 14 2 2 4-4"/></svg></span><span class="tl">Посещаемость</span><span class="new">NEW</span></button>
+                <button class="admin-tab" data-tab="salary" data-grp="Ученики и уроки" onclick="switchTab('salary')"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.6"/><path d="M6 9.5v5M18 9.5v5"/></svg></span><span class="tl">Зарплаты учителей</span><span class="new">NEW</span></button>
+                <button class="admin-tab" data-tab="groups" data-grp="Ученики и уроки" onclick="switchTab('groups')"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></span><span class="tl">Группы</span></button>
+                <button class="admin-tab" data-tab="schedule" data-grp="Ученики и уроки" onclick="switchTab('schedule')"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg></span><span class="tl">Расписание</span></button>
+                <button class="admin-tab" data-tab="lessons" data-grp="Ученики и уроки" onclick="switchTab('lessons')"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="m9 14 2 2 4-4"/></svg></span><span class="tl">Журнал уроков</span></button>
+                <button class="admin-tab" data-tab="mocks" data-grp="Ученики и уроки" onclick="switchTab('mocks')"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></span><span class="tl">Mock-тесты</span></button>
+                <button class="admin-tab" data-tab="referrals" data-grp="Ученики и уроки" onclick="switchTab('referrals')"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12v9H4v-9"/><rect x="2" y="7" width="20" height="5" rx="1"/><path d="M12 21V7M12 7H7.5a2.5 2.5 0 1 1 0-5C11 2 12 7 12 7zM12 7h4.5a2.5 2.5 0 1 0 0-5C13 2 12 7 12 7z"/></svg></span><span class="tl">Рефералы</span></button>
+                <div class="admin-grp">Платформа</div>
+                <button class="admin-tab" data-tab="olympiad" data-grp="Платформа" onclick="switchTab('olympiad')"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6M18 9h1.5a2.5 2.5 0 0 0 0-5H18M4 22h16M10 14.66V17c0 .55-.47.98-1.97 1.21C7.85 18.75 7 20.24 7 22M14 14.66V17c0 .55.47.98 1.97 1.21C16.15 18.75 17 20.24 17 22M18 2H6v7a6 6 0 0 0 12 0z"/></svg></span><span class="tl">Олимпиада</span></button>
+                <button class="admin-tab" data-tab="partners" data-grp="Платформа" onclick="switchTab('partners')"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="5" width="13" height="10" rx="2"/><path d="m15.5 9 6-3v8l-6-3"/><path d="M6 19h7"/></svg></span><span class="tl">Партнёры</span></button>
+                <div class="admin-grp">Настройки</div>
+                <button class="admin-tab" data-tab="design" data-grp="Настройки" onclick="switchTab('design')"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r="1.3"/><circle cx="17.5" cy="10.5" r="1.3"/><circle cx="8.5" cy="7.5" r="1.3"/><circle cx="6.5" cy="12.5" r="1.3"/><path d="M12 2a10 10 0 0 0 0 20c1 0 1.7-.8 1.7-1.7 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.2 0-.9.8-1.7 1.7-1.7H16a6 6 0 0 0 6-6C22 6 17.5 2 12 2z"/></svg></span><span class="tl">Оформление</span></button>
+                <div class="adm-side-foot"><a class="btn-small admin-back" href="./" onclick="if(history.length>1&&document.referrer&&document.referrer.indexOf(location.host)>-1){history.back();return false}">← На сайт</a><button class="btn-small" onclick="logout()">Выйти</button></div>
+            </nav>
+            <div class="adm-scrim" onclick="admMenu(false)"></div>
+            <main class="admin-content">
+            <div class="adm-mtop"><button type="button" onclick="admMenu(true)" aria-label="Открыть меню"><svg class="ico" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-0.15em"><path d="M4 6.5h16M4 12h16M4 17.5h16"/></svg> Меню</button><span id="adm-mtitle">Главная</span></div>
+            <div class="adm-head"><div><div class="adm-crumb" id="adm-crumb"></div><h2 class="admin-ptitle" id="admin-ptitle">Главная</h2><p class="admin-hint" id="admin-phint"></p></div></div>
+
+            <!-- PARTNERS: outside teachers renting the platform (admin-partners.js) -->
+            <div class="admin-panel" id="panel-partners"><div id="partners-root"></div></div>
+
+            <!-- HOME -->
+            <div class="admin-panel active" id="panel-home">
+                <div class="adm-hello">
+                    <h3>Здравствуйте! Что хотите сделать?</h3>
+                    <p>Самое частое — в один клик. Всё остальное — в разделах ниже или в меню слева.</p>
+                    <div class="adm-quick">
+                        <button type="button" onclick="admQuick('blog')"><svg class="ico" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-0.15em"><path d="M12 5v14M5 12h14"/></svg> Статья в блог</button>
+                        <button type="button" onclick="admQuick('news')"><svg class="ico" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-0.15em"><path d="M12 5v14M5 12h14"/></svg> Новость</button>
+                        <button type="button" onclick="admQuick('teachers')"><svg class="ico" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-0.15em"><path d="M12 5v14M5 12h14"/></svg> Учитель</button>
+                        <button type="button" onclick="admQuick('schedule')"><svg class="ico" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-0.15em"><path d="M12 5v14M5 12h14"/></svg> Урок в расписание</button>
+                        <button type="button" onclick="admQuick('results')"><svg class="ico" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-0.15em"><path d="M12 5v14M5 12h14"/></svg> Результат ученика</button>
+                        <button type="button" onclick="switchTab('catalog')">Изменить цены</button>
+                    </div>
+                    <p style="margin:1rem 0 0;font-size:.88rem">Инструкции (PDF), чтобы отправить людям: <a href="docs/guide-teacher.pdf" target="_blank" rel="noopener">для учителя</a> · <a href="docs/guide-student.pdf" target="_blank" rel="noopener">для ученика</a>. Они также лежат в кабинетах в разделе «Инструкция».</p>
+                </div>
+                <div class="adm-home-grp">Сайт</div>
+                <div class="adm-tiles">
+                    <button type="button" class="adm-tile" onclick="switchTab('catalog')"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg></span><span><b>Курсы и цены</b><small>Цены, форматы и описания курсов на главной</small></span></button>
+                    <button type="button" class="adm-tile" onclick="switchTab('teachers')"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg></span><span><b>Учителя на сайте</b><small>Карточки учителей, фото, видео, порядок</small></span></button>
+                    <button type="button" class="adm-tile" onclick="switchTab('blog')"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h12l4 4v12H4z"/><path d="M8 10h8M8 14h8M8 18h5"/></svg></span><span><b>Блог и статьи</b><small>Статьи «Академический блог и советы» на главной</small></span></button>
+                    <button type="button" class="adm-tile" onclick="switchTab('news')"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h13v14a2 2 0 0 0 2 2H6a2 2 0 0 1-2-2z"/><path d="M17 9h3v10a2 2 0 0 1-2 2"/><path d="M8 9h5M8 13h5M8 17h3"/></svg></span><span><b>Новости</b><small>Записи на странице «Новости»</small></span></button>
+                    <button type="button" class="adm-tile" onclick="switchTab('reviews')"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg></span><span><b>Отзывы</b><small>Проверка и публикация отзывов учеников</small></span></button>
+                    <button type="button" class="adm-tile" onclick="switchTab('results')"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="9" r="6"/><path d="m8.5 14-1.5 7 5-3 5 3-1.5-7"/></svg></span><span><b>Результаты учеников</b><small>Сертификаты и баллы на странице «Результаты»</small></span></button>
+                    <button type="button" class="adm-tile" onclick="switchTab('videos')"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="15" height="14" rx="2"/><path d="m22 8-5 4 5 4z"/></svg></span><span><b>Видео на главной</b><small>Карусель видео в самом верху главной</small></span></button>
+                    <button type="button" class="adm-tile" onclick="switchTab('announcement')"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11v2a1 1 0 0 0 1 1h3l5 4V6L7 10H4a1 1 0 0 0-1 1z"/><path d="M16 8a5 5 0 0 1 0 8M19 5a9 9 0 0 1 0 14"/></svg></span><span><b>Баннер сверху</b><small>Короткое объявление на всех страницах</small></span></button>
+                    <button type="button" class="adm-tile" onclick="switchTab('promo')"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9a2 2 0 0 0 0 6v3a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1v-3a2 2 0 0 1 0-6V6a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1z"/><path d="M14 5v14" stroke-dasharray="2 2"/></svg></span><span><b>Промокоды</b><small>Скидки для блока цен</small></span></button>
+                </div>
+                <div class="adm-home-grp">Ученики и уроки</div>
+                <div class="adm-tiles">
+                    <button type="button" class="adm-tile" onclick="switchTab('students')"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14c2.2.6 3.5 2.8 3.5 6"/></svg></span><span><b>Ученики и роли</b><small>Все аккаунты: найти, сделать учителем или админом</small></span></button>
+                    <button type="button" class="adm-tile" onclick="switchTab('journal')"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h12a2 2 0 0 1 2 2v16H7a2 2 0 0 1-2-2z"/><path d="M5 17a2 2 0 0 1 2-2h12"/><path d="m8.5 10 2 2 4-4.5"/></svg></span><span><b>Журнал оценок</b><small>Оценки, посещаемость и прогресс каждого ученика по всем группам</small></span></button>
+                    <button type="button" class="adm-tile" onclick="switchTab('salary')"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.6"/><path d="M6 9.5v5M18 9.5v5"/></svg></span><span><b>Зарплаты учителей</b><small>40% за каждого ученика на уроке, бонусы, штрафы, выплаты</small></span></button>
+                    <button type="button" class="adm-tile" onclick="switchTab('groups')"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></span><span><b>Группы</b><small>Группы учителей: передать, архив, Excel</small></span></button>
+                    <button type="button" class="adm-tile" onclick="switchTab('schedule')"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg></span><span><b>Расписание</b><small>Назначить урок ученику и учителю</small></span></button>
+                    <button type="button" class="adm-tile" onclick="switchTab('lessons')"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="m9 14 2 2 4-4"/></svg></span><span><b>Журнал уроков</b><small>Кто и сколько был на видеоуроках</small></span></button>
+                    <button type="button" class="adm-tile" onclick="switchTab('mocks')"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></span><span><b>Mock-тесты</b><small>Тесты IELTS и результаты учеников</small></span></button>
+                    <button type="button" class="adm-tile" onclick="switchTab('referrals')"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12v9H4v-9"/><rect x="2" y="7" width="20" height="5" rx="1"/><path d="M12 21V7M12 7H7.5a2.5 2.5 0 1 1 0-5C11 2 12 7 12 7zM12 7h4.5a2.5 2.5 0 1 0 0-5C13 2 12 7 12 7z"/></svg></span><span><b>Рефералы</b><small>Приглашённые друзья и скидки</small></span></button>
+                </div>
+                <div class="adm-home-grp">Настройки</div>
+                <div class="adm-tiles">
+                    <button type="button" class="adm-tile" onclick="switchTab('design')"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r="1.3"/><circle cx="17.5" cy="10.5" r="1.3"/><circle cx="8.5" cy="7.5" r="1.3"/><circle cx="6.5" cy="12.5" r="1.3"/><path d="M12 2a10 10 0 0 0 0 20c1 0 1.7-.8 1.7-1.7 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.2 0-.9.8-1.7 1.7-1.7H16a6 6 0 0 0 6-6C22 6 17.5 2 12 2z"/></svg></span><span><b>Оформление</b><small>Цвет сайта и логотип</small></span></button>
+                </div>
             </div>
 
-            <div class="admin-layout">
-            <nav class="admin-side" id="admin-side" aria-label="Разделы админ-панели">
-                <div class="admin-grp">Люди</div>
-                <button class="admin-tab" data-tab="students" onclick="switchTab('students')">Ученики и роли</button>
-                <button class="admin-tab" data-tab="groups" onclick="switchTab('groups')">Группы</button>
-                <button class="admin-tab" data-tab="teachers" onclick="switchTab('teachers')">Учителя на сайте</button>
-                <div class="admin-grp">Обучение</div>
-                <button class="admin-tab" data-tab="lessons" onclick="switchTab('lessons')">Журнал уроков</button>
-                <button class="admin-tab" data-tab="mocks" onclick="switchTab('mocks')">Mock-тесты</button>
-                <button class="admin-tab" data-tab="schedule" onclick="switchTab('schedule')">Расписание</button>
-                <button class="admin-tab" data-tab="referrals" onclick="switchTab('referrals')">Рефералы</button>
-                <div class="admin-grp">Что видят посетители</div>
-                <button class="admin-tab active" data-tab="news" onclick="switchTab('news')">Новости</button>
-                <button class="admin-tab" data-tab="announcement" onclick="switchTab('announcement')">Баннер сверху</button>
-                <button class="admin-tab" data-tab="catalog" onclick="switchTab('catalog')">Курсы и цены</button>
-                <button class="admin-tab" data-tab="reviews" onclick="switchTab('reviews')">Отзывы</button>
-                <button class="admin-tab" data-tab="results" onclick="switchTab('results')">Результаты</button>
-                <button class="admin-tab" data-tab="videos" onclick="switchTab('videos')">Видео на главной</button>
-                <div class="admin-grp">Вид сайта</div>
-                <button class="admin-tab" data-tab="design" onclick="switchTab('design')">Оформление</button>
-            </nav>
-            <div class="admin-content">
-            <h2 class="admin-ptitle" id="admin-ptitle">Новости</h2>
-            <p class="admin-hint" id="admin-phint">Записи на странице «Новости» (news.html): заголовок, текст, дата. Остаются в списке, пока вы их не удалите.</p>
+            <!-- SALARY -->
+            <div class="admin-panel" id="panel-salary"><div id="salary-root"></div></div>
+
+            <!-- OLYMPIAD -->
+            <div class="admin-panel" id="panel-olympiad"><div id="olympiad-root"><div class="empty-state">Загрузка…</div></div></div>
+
+            <!-- TEACHER CONTROL (curator) -->
+            <div class="admin-panel" id="panel-control">
+                <div class="admin-form adm-filter">
+                    <div style="flex:1 1 220px;"><label>Поиск учителя</label>
+                        <input type="text" id="cur-search" placeholder="Имя или @никнейм" oninput="CuratorPanel.render()"></div>
+                    <div style="flex:0 1 170px;"><label>Период</label>
+                        <select id="cur-period" onchange="CuratorPanel.load()">
+                            <option value="7">7 дней</option><option value="14" selected>14 дней</option><option value="30">30 дней</option>
+                        </select></div>
+                    <label class="les-only"><input type="checkbox" id="cur-bad" onchange="CuratorPanel.render()"> Только с замечаниями</label>
+                    <button class="btn-small" type="button" onclick="CuratorPanel.load()">Обновить</button>
+                </div>
+                <div id="curator-root"><div class="empty-state">Загрузка…</div></div>
+            </div>
+
+            <!-- JOURNAL -->
+            <div class="admin-panel" id="panel-journal"><div id="journal-root"></div></div>
+
+            <!-- ATTENDANCE (school-style journal, curator mode) -->
+            <div class="admin-panel" id="panel-attendance"><div id="attendance-root"><div class="empty-state">Загрузка…</div></div></div>
+
+            <!-- BLOG -->
+            <div class="admin-panel" id="panel-blog"><div id="blog-root"><div class="empty-state">Загрузка…</div></div></div>
 
             <!-- NEWS -->
-            <div class="admin-panel active" id="panel-news">
+            <div class="admin-panel" id="panel-news">
                 <div class="admin-form">
                     <label>Заголовок</label>
                     <input type="text" id="news-title" placeholder="Например: Новый поток стартует 1 октября">
@@ -191,22 +510,21 @@
             <!-- COURSES & PRICES -->
             <div class="admin-panel" id="panel-catalog"><div id="cat-root"><div class="empty-state">Загрузка…</div></div></div>
 
+            <!-- PROMO CODES -->
+            <div class="admin-panel" id="panel-promo"><div id="promo-root"><div class="empty-state">Загрузка…</div></div></div>
+
             <!-- REVIEWS -->
             <div class="admin-panel" id="panel-reviews">
-                <p style="color: var(--ink-soft); font-size: 0.85rem; margin-bottom: 1rem;">
-                    Отзывы, оставленные посетителями сайта напрямую, попадают сюда со статусом
-                    «На проверке» — опубликуйте их, если всё в порядке. Ниже можно и добавить отзыв вручную.
-                </p>
                 <div class="admin-form">
                     <label>Имя ученика</label>
                     <input type="text" id="review-name" placeholder="Например: Азиза, Ташкент">
                     <label>Оценка (1–5)</label>
                     <select id="review-rating">
-                        <option value="5">5 ★★★★★</option>
-                        <option value="4">4 ★★★★</option>
-                        <option value="3">3 ★★★</option>
-                        <option value="2">2 ★★</option>
-                        <option value="1">1 ★</option>
+                        <option value="5">5 из 5</option>
+                        <option value="4">4 из 5</option>
+                        <option value="3">3 из 5</option>
+                        <option value="2">2 из 5</option>
+                        <option value="1">1 из 5</option>
                     </select>
                     <label>Текст отзыва</label>
                     <textarea id="review-text" placeholder="Текст отзыва от ученика..."></textarea>
@@ -221,17 +539,14 @@
 
             <!-- RESULTS -->
             <div class="admin-panel" id="panel-results">
-                <p style="color: var(--ink-soft); font-size: 0.85rem; margin-bottom: 1rem;">
-                    Здесь вы добавляете сертификаты и баллы учеников — они появляются на странице «Результаты».
-                    Посетитель наводит курсор на сертификат, и он увеличивается лупой.
-                </p>
                 <div class="admin-form">
-                    <label>Экзамен</label>
-                    <input type="text" id="res-exam" list="res-exam-list" value="IELTS" maxlength="30" oninput="applyExamTemplate()">
-                    <datalist id="res-exam-list"><option value="IELTS"><option value="SAT"><option value="TOEFL"><option value="CEFR"></datalist>
-
-                    <label>Общий балл</label>
-                    <input type="text" id="res-overall" placeholder="Например: 8.5" maxlength="12">
+                    <div class="adm-grid2">
+                        <div><label>Экзамен</label>
+                        <input type="text" id="res-exam" list="res-exam-list" value="IELTS" maxlength="30" oninput="applyExamTemplate()">
+                        <datalist id="res-exam-list"><option value="IELTS"><option value="SAT"><option value="TOEFL"><option value="CEFR"></datalist></div>
+                        <div><label>Общий балл</label>
+                        <input type="text" id="res-overall" placeholder="Например: 8.5" maxlength="12"></div>
+                    </div>
 
                     <label>Баллы по частям (пустые строки не показываются)</label>
                     <div class="score-rows" id="res-score-rows">
@@ -257,11 +572,6 @@
 
             <!-- HERO VIDEOS -->
             <div class="admin-panel" id="panel-videos">
-                <p style="color: var(--ink-soft); font-size: 0.85rem; margin-bottom: 1rem;">
-                    Видео на главной странице показываются каруселью: когда одно заканчивается, сайт сам переключает на следующее.
-                    Посетитель может листать стрелками, точками или свайпом. Первым всегда идёт основное видео сайта, ваши — после него.
-                    Лучше всего подходит вертикальное видео 9:16 (как в Instagram Reels) — другое будет обрезано по краям.
-                </p>
                 <div class="admin-form">
                     <label>Название (только для вас, на сайте не показывается)</label>
                     <input type="text" id="vid-title" placeholder="Например: Отзыв Азизы про IELTS 8.0" maxlength="80">
@@ -282,35 +592,41 @@
 
             <!-- TEACHERS -->
             <div class="admin-panel" id="panel-teachers">
-                <div id="teachers-seed-banner" class="admin-card" style="display: none; border-color: var(--accent);">
-                    <h3>Преподаватели пока записаны прямо в коде сайта</h3>
-                    <p>Чтобы добавлять, менять и удалять их отсюда, нажмите кнопку — я перенесу текущих 5 преподавателей в базу. Ничего не пропадёт: их профили и ссылки на расписание продолжат работать.</p>
-                    <div class="admin-card-actions"><button class="btn-small primary" onclick="seedTeachers()">Подключить управление учителями</button></div>
-                    <div class="status-msg" id="seed-status"></div>
-                </div>
 
                 <div class="admin-form" id="teacher-form">
-                    <h3 id="teacher-form-title" style="margin-bottom: 0.5rem;">Добавить учителя</h3>
-                    <label>Имя и фамилия *</label>
-                    <input type="text" id="tch-name" placeholder="Например: Каримов Алишер" maxlength="80">
-                    <label>Специализация *</label>
-                    <input type="text" id="tch-role" placeholder="Например: IELTS Writing Expert" maxlength="100">
-                    <label>Балл на значке (необязательно)</label>
-                    <input type="text" id="tch-badge" placeholder="Например: IELTS 7.5" maxlength="30">
-                    <label>Теги через запятую (необязательно)</label>
-                    <input type="text" id="tch-tags" placeholder="Например: 5 лет опыта, Speaking" maxlength="160">
-                    <label>Язык, на котором вы пишете тексты ниже</label>
-                    <select id="tch-lang">
-                        <option value="ru">Русский</option>
-                        <option value="uz">O'zbekcha</option>
-                        <option value="en">English</option>
-                    </select>
-                    <p style="color: var(--ink-soft); font-size: 0.8rem; margin-top: 0.4rem;">Сайт автоматически переведёт специализацию, теги, описание и названия сертификатов на два других языка при сохранении. Имя не переводится.</p>
+                    <div class="adm-form-head"><h3 id="teacher-form-title">Добавить учителя</h3><button type="button" class="adm-x" onclick="admCloseForm('teachers')" aria-label="Свернуть"><svg class="ico" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-0.15em"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+                    <div class="adm-step"><span>1</span> Кто это</div>
+                    <div class="adm-grid2">
+                        <div><label>Имя и фамилия *</label>
+                        <input type="text" id="tch-name" placeholder="Например: Каримов Алишер" maxlength="80" oninput="tchNameHint()"></div>
+                        <div><label>Имя латиницей (для UZ / EN)</label>
+                        <input type="text" id="tch-name-lat" placeholder="Например: Karimov Alisher" maxlength="80"></div>
+                    </div>
+                    <p class="adm-help">Если латиницу не заполнить, имя напишется само: <span id="tch-name-auto">—</span></p>
+                    <div class="adm-grid2">
+                        <div><label>Специализация *</label>
+                        <input type="text" id="tch-role" placeholder="Например: IELTS Writing Expert" maxlength="100"></div>
+                        <div><label>Балл на значке</label>
+                        <input type="text" id="tch-badge" placeholder="Например: IELTS 7.5" maxlength="30"></div>
+                    </div>
+                    <div class="adm-grid2">
+                        <div><label>Теги через запятую</label>
+                        <input type="text" id="tch-tags" placeholder="Например: 5 лет опыта, Speaking" maxlength="160"></div>
+                        <div><label>Язык, на котором пишете</label>
+                        <select id="tch-lang">
+                            <option value="ru">Русский</option>
+                            <option value="uz">O'zbekcha</option>
+                            <option value="en">English</option>
+                        </select></div>
+                    </div>
+                    <p class="adm-help">При сохранении всё само переведётся на два других языка.</p>
+                    <div class="adm-step"><span>2</span> Описание</div>
                     <label>Коротко о преподавателе * (на карточке)</label>
                     <textarea id="tch-bio" placeholder="Чем занимается, в чём сильнее всего, результаты учеников..." maxlength="600"></textarea>
                     <label>Подробное описание (необязательно — на странице профиля)</label>
                     <textarea id="tch-bio-full" placeholder="Если оставить пустым, на странице профиля покажется короткое описание." maxlength="1500"></textarea>
 
+                    <div class="adm-step"><span>3</span> Видео, фото, сертификаты</div>
                     <label>Видео-визитка (необязательно)</label>
                     <input type="text" id="tch-video" placeholder="Ссылка на YouTube / Instagram Reel или прямую .mp4 (https://…)" maxlength="300">
                     <p style="color: var(--ink-soft); font-size: 0.8rem; margin-top: 0.4rem;">Если указать, на карточке в «Команде экспертов» появится значок ▶ — по клику видео откроется на весь экран.</p>
@@ -328,7 +644,7 @@
 
                     <div style="display: flex; gap: 0.75rem; margin-top: 1rem; flex-wrap: wrap;">
                         <button class="btn-primary" id="tch-save-btn" onclick="saveTeacher()">Добавить учителя</button>
-                        <button class="btn-small" id="tch-cancel-btn" style="display: none;" onclick="resetTeacherForm()">Отмена</button>
+                        <button class="btn-small" id="tch-cancel-btn" style="display: none;" onclick="resetTeacherForm(); admCloseForm('teachers')">Отмена</button>
                     </div>
                     <div class="status-msg" id="tch-status"></div>
                 </div>
@@ -357,25 +673,17 @@
                     <div class="mk-bar">
                         <input type="search" id="mk-res-q" placeholder="Поиск по имени" oninput="MockAdmin.renderResults()" style="max-width:220px">
                         <select id="mk-res-test" onchange="MockAdmin.renderResults()" style="max-width:260px"><option value="">Все тесты</option></select>
-                        <button class="btn-small" onclick="MockAdmin.exportCsv()">Скачать CSV</button>
+                        <button class="btn-small" onclick="MockAdmin.exportCsv()">Скачать Excel</button>
                     </div>
                     <div id="mk-res-list"></div>
                 </div>
                 <div id="mk-editor" style="display:none"></div>
             </div>
             <div class="admin-panel" id="panel-schedule">
-                <p style="color: var(--ink-soft); font-size: 0.85rem; margin-bottom: 1rem;">
-                    Найдите ученика по его никнейму (это и есть его логин — он его выбирал при регистрации). Ученик увидит урок в своём личном кабинете, преподаватель — на своей странице расписания.
-                </p>
                 <div class="admin-form">
                     <label>Преподаватель</label>
                     <select id="sch-teacher">
                         <optgroup label="Преподаватели с профилем на сайте" id="sch-teacher-builtin">
-                            <option value="firdavs">Убайдуллоев Фирдавс</option>
-                            <option value="sadokat">Убайдуллоева Садокат</option>
-                            <option value="javokhir">Солиев Жавохир</option>
-                            <option value="behruz">Соатбоев Бехруз</option>
-                            <option value="azizbek">Елмуратов Азизбек</option>
                         </optgroup>
                         <optgroup label="Преподаватели-аккаунты" id="sch-teacher-accounts"></optgroup>
                     </select>
@@ -384,10 +692,12 @@
                     <input type="text" id="sch-nickname" placeholder="Например: aziz_2010">
                     <div id="sch-nickname-status" style="font-size: 0.82rem; margin-top: 0.4rem;"></div>
 
-                    <label>Дата</label>
-                    <input type="date" id="sch-date">
-                    <label>Время</label>
-                    <input type="time" id="sch-time">
+                    <div class="adm-grid2">
+                        <div><label>Дата</label>
+                        <input type="date" id="sch-date"></div>
+                        <div><label>Время</label>
+                        <input type="time" id="sch-time"></div>
+                    </div>
                     <label>Тема урока (необязательно)</label>
                     <input type="text" id="sch-subject" placeholder="Например: Writing Task 2">
 
@@ -399,12 +709,12 @@
 
             <!-- STUDENTS -->
             <div class="admin-panel" id="panel-students">
-                <div class="admin-form">
+                <div class="admin-form adm-filter"><div style="flex:1 1 260px;">
                     <label>Поиск по имени, никнейму, телефону или email</label>
-                    <input type="text" id="student-search" placeholder="Начните вводить..." oninput="filterStudents()">
+                    <input type="text" id="student-search" placeholder="Начните вводить..." oninput="filterStudents()"></div>
                 </div>
                 <div style="display:flex; gap:0.6rem; align-items:center; flex-wrap:wrap; margin-bottom:0.8rem;">
-                    <select id="student-role" onchange="filterStudents()" style="max-width:200px;"><option value="all">Все роли</option><option value="student">Ученики</option><option value="teacher">Преподаватели</option><option value="admin">Администраторы</option></select>
+                    <select id="student-role" onchange="filterStudents()" style="max-width:200px;"><option value="all">Все роли</option><option value="student">Ученики</option><option value="teacher">Преподаватели</option><option value="partner">Партнёры</option><option value="curator">Кураторы</option><option value="admin">Сотрудники (админка)</option></select>
                     <button class="btn-small" type="button" onclick="syncDirectoryAll(this)" title="Нужно один раз после обновления, чтобы все могли находить друг друга в мессенджере">Обновить каталог мессенджера</button>
                     <span id="student-count" style="color: var(--ink-soft); font-size: 0.85rem;"></span>
                 </div>
@@ -413,47 +723,57 @@
 
             <!-- LESSONS (journal of held video lessons) -->
             <div class="admin-panel" id="panel-lessons">
-                <p style="color: var(--ink-soft); font-size: 0.85rem; margin-bottom: 1rem;">
-                    Журнал проведённых видеоуроков: чей урок, с какого и до какого времени, сколько просидел учитель и каждый ученик. Запись появляется, когда учитель заходит в комнату, и закрывается кнопкой «Закончить урок».
-                </p>
-                <div class="admin-form" style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:flex-end;">
+                <div class="admin-form adm-filter">
                     <div style="flex:1 1 220px;"><label>Поиск по учителю, группе или ученику</label>
                         <input type="text" id="les-search" placeholder="Начните вводить..." oninput="renderLessons()"></div>
-                    <div style="flex:0 1 200px;"><label>Период</label>
+                    <div style="flex:0 1 170px;"><label>Период</label>
                         <select id="les-period" onchange="renderLessons()">
                             <option value="1">Сегодня</option><option value="7" selected>7 дней</option><option value="30">30 дней</option><option value="0">Все</option>
                         </select></div>
+                    <div style="flex:0 1 200px;"><label>Учитель</label>
+                        <select id="les-teacher" onchange="renderLessons()"><option value="">Все учителя</option></select></div>
+                    <label class="les-only"><input type="checkbox" id="les-problems" onchange="renderLessons()"> Только с проблемами</label>
                     <button class="btn-small" type="button" onclick="loadLessons()">Обновить</button>
-                    <button class="btn-small" type="button" onclick="exportLessonsCsv()">CSV</button>
+                    <button class="btn-small" type="button" onclick="exportLessonsCsv()">Excel</button>
                 </div>
-                <div id="les-count" style="color: var(--ink-soft); font-size: 0.85rem; margin: 0.5rem 0;"></div>
+                <div id="les-count" class="les-sum"></div>
+                <div id="les-teachers"></div>
                 <div id="les-items"><div class="empty-state">Загрузка…</div></div>
             </div>
 
             <!-- GROUPS -->
             <div class="admin-panel" id="panel-groups">
-                <p style="color: var(--ink-soft); font-size: 0.85rem; margin-bottom: 1rem;">
-                    Все группы преподавателей. Можно передать группу другому преподавателю (вместе с историей посещаемости и оценок), отправить в архив, скачать CSV или удалить.
-                </p>
-                <div class="admin-form" style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:flex-end;">
+                <details class="admin-form grp-new" id="grp-new">
+                    <summary><b>+ Создать группу</b> <small>— название, учитель, дни и время; учеников добавите в карточке группы</small></summary>
+                    <div class="grp-new-grid">
+                        <div><label>Название группы</label><input type="text" id="gn-name" maxlength="60" placeholder="Например: IELTS 6.5 — вечер"></div>
+                        <div><label>Направление</label><select id="gn-subject"><option>IELTS</option><option>SAT Math</option><option>General English</option><option>Олимпиадная математика</option><option>Другое</option></select></div>
+                        <div><label>Преподаватель</label><select id="gn-teacher"></select></div>
+                        <div><label>Время начала</label><input type="time" id="gn-time" value="18:00"></div>
+                    </div>
+                    <label>Дни занятий</label>
+                    <div class="grp-days" id="gn-days"></div>
+                    <div style="display:flex;gap:.6rem;align-items:center;margin-top:.8rem;flex-wrap:wrap;">
+                        <button class="btn-small primary" type="button" onclick="createAdminGroup(this)">Создать группу</button>
+                        <span class="status-msg" id="gn-status"></span>
+                    </div>
+                </details>
+                <div class="admin-form adm-filter">
                     <div style="flex:1 1 220px;"><label>Поиск по названию, преподавателю или ученику</label>
                         <input type="text" id="grp-search" placeholder="Начните вводить..." oninput="renderAdminGroups()"></div>
                     <div style="flex:0 1 200px;"><label>Показать</label>
                         <select id="grp-filter" onchange="renderAdminGroups()">
                             <option value="active">Активные</option><option value="archived">В архиве</option><option value="all">Все</option>
                         </select></div>
+                    <div style="flex:0 1 220px;" id="grp-cur-wrap"><label>Куратор</label>
+                        <select id="grp-cur" onchange="renderAdminGroups()"><option value="">Все группы</option><option value="-">Только TheStarth</option></select></div>
                 </div>
                 <div id="grp-count" style="color: var(--ink-soft); font-size: 0.85rem; margin: 0.5rem 0;"></div>
                 <div id="grp-items"></div>
             </div>
 
             <div class="admin-panel" id="panel-referrals">
-                <p style="color: var(--ink-soft); font-size: 0.85rem; margin-bottom: 1rem;">
-                    Ученик приглашает друга по своей ссылке. Друг регистрируется → вы видите его здесь как «Зарегистрировался» (ему положена скидка 10% на первый месяц).
-                    Когда друг <strong>оплатил первый месяц</strong>, нажмите «Друг оплатил» — пригласившему положена скидка 20% на следующий месяц.
-                    Когда вы применили скидку при его оплате — нажмите «Скидка применена».
-                </p>
-                <div class="admin-form" style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:flex-end;">
+                <div class="admin-form adm-filter">
                     <div style="flex:1 1 220px;"><label>Поиск по никнейму или имени</label>
                         <input type="text" id="ref-search" placeholder="Начните вводить..." oninput="renderReferrals()"></div>
                     <div style="flex:0 1 220px;"><label>Статус</label>
@@ -482,7 +802,11 @@
                     <input type="text" id="design-logo" placeholder="https://.../logo.png">
                     <p style="color: var(--ink-soft); font-size: 0.8rem; margin-top: 0.5rem;">Оставьте пустым, чтобы использовать текущий значок.</p>
 
-                    <button class="btn-primary" style="margin-top: 1.5rem;" onclick="saveDesign()">Сохранить оформление</button>
+                    <p style="color: var(--ink-soft); font-size: 0.8rem; margin-top: 0.5rem;">У стандартного оформления два цвета: тёмно-золотой для светлой темы и яркое золото для тёмной. Свой цвет заменяет оба — в тёмной теме он только осветляется.</p>
+                    <div style="display:flex;gap:.6rem;flex-wrap:wrap;margin-top: 1.5rem;">
+                        <button class="btn-primary" onclick="saveDesign()">Сохранить оформление</button>
+                        <button class="btn-small" type="button" onclick="resetDesign()">Сбросить по умолчанию</button>
+                    </div>
                     <div class="status-msg" id="design-status"></div>
                 </div>
             </div>
@@ -497,12 +821,12 @@
                     <label>Текст баннера</label>
                     <input type="text" id="ann-text" placeholder="Например: Набор на зимний интенсив открыт — осталось 5 мест">
                     <label>Ссылка (необязательно)</label>
-                    <input type="text" id="ann-link" placeholder="payment.html">
+                    <input type="text" id="ann-link" placeholder="payment">
                     <button class="btn-primary" style="margin-top: 1rem;" onclick="saveAnnouncement()">Сохранить</button>
                     <div class="status-msg" id="ann-status"></div>
                 </div>
             </div>
-            </div></div>
+            </main></div>
         </div>
     </div>
 
@@ -510,13 +834,23 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
-    <script src="firebase-config.js"></script>
-    <script src="video-embed.js"></script>
-    <script src="csv-export.js"></script>
-    <script src="mock-config.js"></script>
-    <script src="mock-engine.js"></script>
-    <script src="content-i18n.js"></script>
-    <script src="teachers-data.js"></script>
+    <script src="firebase-config.js?v=92"></script>
+    <script src="video-embed.js?v=92"></script>
+    <script src="icons.js?v=92"></script>
+    <script src="csv-export.js?v=92"></script>
+    <script src="speaking-view.js?v=92"></script>
+    <script src="journal.js?v=92"></script>
+    <script src="attendance-journal.js?v=92"></script>
+    <script src="salary.js?v=92"></script>
+    <script src="teacher-salary.js?v=92"></script>
+    <script src="admin-salary.js?v=92"></script>
+    <script src="admin-curator.js?v=92"></script>
+    <script src="admin-olympiad.js?v=92"></script>
+    <script src="mock-config.js?v=92"></script>
+    <script src="mock-engine.js?v=92"></script>
+    <script src="content-i18n.js?v=92"></script>
+    <script src="blog.js?v=92"></script>
+    <script src="admin-blog.js?v=92"></script>
     <script>
         function escapeHtml(str) {
             if (str === undefined || str === null) return '';
@@ -538,14 +872,15 @@
             errEl.textContent = 'Проверяю…';
             try {
                 const cred = await auth.signInWithEmailAndPassword(email, password);
-                const adminDoc = await db.collection('admins').doc(cred.user.uid).get();
-                if (!adminDoc.exists) {
+                const acc = await admAccess(cred.user.uid);
+                if (!acc) {
                     errEl.textContent = 'Этот аккаунт не в списке админов (см. FIREBASE_SETUP.md, шаг 6).';
                     await auth.signOut();
                     return;
                 }
                 errEl.textContent = '';
-                showDashboard();
+                window.ADM_ROLE = acc.role; window.ADM_SCOPE = acc.scope;
+                if (document.getElementById('dashboard').style.display !== 'block') showDashboard();
             } catch (err) {
                 const map = {
                     'auth/user-not-found': 'Аккаунт с таким email не найден. Сначала зарегистрируйтесь на сайте.',
@@ -557,40 +892,168 @@
             }
         }
 
+        // Who may open the panel: everybody in admins/ (admin, Куратор TheStarth, content, finance) and the
+        // partner curator (users.role 'partner_curator') — he works only with his own teachers and groups (ADM_SCOPE = his uid).
+        async function admAccess(uid) {
+            const a = await db.collection('admins').doc(uid).get().catch(() => null);
+            if (a && a.exists) return { role: (a.data() || {}).role || 'admin', scope: '' };
+            const u = await db.collection('users').doc(uid).get().catch(() => null);
+            if (u && u.exists && (u.data() || {}).role === 'partner_curator') return { role: 'pcurator', scope: uid };
+            return null;
+        }
+        const scopeOn = () => !!window.ADM_SCOPE;
+        const isFullAdmin = () => !window.ADM_ROLE || window.ADM_ROLE === 'admin';
+        const isTeacherRole = (r) => ['teacher', 'partner', 'curator', 'partner_curator'].indexOf(r) !== -1;
+
         function logout() {
             auth.signOut();
             location.reload();
         }
 
+        // Staff roles (admins/{uid}.role): who sees which sections. Firestore rules enforce the same split.
+        const STAFF_ROLES = {
+            admin: { name: 'Админ', hint: 'всё' },
+            curator: { name: 'Куратор TheStarth', hint: 'все учителя и группы (и партнёров): контроль учителей, ученики, группы, расписание, журналы', tabs: ['home', 'control', 'attendance', 'students', 'journal', 'groups', 'schedule', 'lessons'], byRole: true },
+            pcurator: { name: 'Куратор (партнёр)', hint: 'только свои учителя и их группы', tabs: ['home', 'control', 'attendance', 'students', 'journal', 'groups', 'schedule', 'lessons'], byRole: true },
+            content: { name: 'Контент / SMM', hint: 'новости, блог, отзывы, результаты, видео, учителя на сайте, баннер, курсы', tabs: ['home', 'catalog', 'teachers', 'blog', 'news', 'reviews', 'results', 'videos', 'announcement', 'design'] },
+            finance: { name: 'Финансы', hint: 'зарплаты, промокоды, рефералы, партнёры', tabs: ['home', 'salary', 'promo', 'referrals', 'partners', 'students', 'groups', 'lessons'] }
+        };
+        const canTab = (t) => { const r = STAFF_ROLES[window.ADM_ROLE || 'admin']; return !r || !r.tabs || r.tabs.indexOf(t) !== -1; };
+        function applyStaffRole() {
+            const role = window.ADM_ROLE || 'admin';
+            document.querySelectorAll('.admin-tab[data-tab]').forEach((b) => { b.style.display = canTab(b.dataset.tab) ? '' : 'none'; });
+            // group headers without visible tabs
+            document.querySelectorAll('.admin-side .admin-grp').forEach((h) => { let n = h.nextElementSibling, any = false; while (n && !n.classList.contains('admin-grp')) { if (n.classList.contains('admin-tab') && n.style.display !== 'none') any = true; n = n.nextElementSibling; } h.style.display = any ? '' : 'none'; });
+            // home: quick buttons and tiles that lead to closed sections
+            document.querySelectorAll('#panel-home [onclick]').forEach((b) => { const m = /(?:switchTab|admQuick)\('(\w+)'\)/.exec(b.getAttribute('onclick') || ''); if (m && !canTab(m[1])) b.style.display = 'none'; });
+            document.querySelectorAll('#panel-home .adm-tiles').forEach((t) => { const vis = Array.from(t.children).some((c) => c.style.display !== 'none'); t.style.display = vis ? '' : 'none'; const h = t.previousElementSibling; if (h && h.classList.contains('adm-home-grp')) h.style.display = vis ? '' : 'none'; });
+            document.body.dataset.staff = role;
+            document.querySelectorAll('[onclick^="syncDirectoryAll"]').forEach((b) => { b.style.display = window.ADM_SCOPE ? 'none' : ''; });
+            const sub = document.querySelector('.adm-brand small, .adm-brand .adm-brand-sub');
+            if (role !== 'admin' && STAFF_ROLES[role]) { const el = document.getElementById('admRoleNote') || document.createElement('div'); el.id = 'admRoleNote'; el.className = 'adm-role-note'; el.textContent = 'Ваша роль: ' + STAFF_ROLES[role].name; const side = document.getElementById('admin-side'); if (side && !el.parentNode) side.insertBefore(el, side.children[1] || null); }
+        }
         function showDashboard() {
             document.getElementById('login-screen').style.display = 'none';
             document.getElementById('dashboard').style.display = 'block';
-            loadNews();
-            loadReviews();
-            loadResults();
-            loadHeroVideos();
-            loadTeachers();
-            loadSchedule();
-            loadStudents();
-            loadReferrals();
-            loadAdminGroups();
-            loadLessons();
-            if (window.loadMocks) loadMocks();
-            loadDesign();
+            applyStaffRole();
+            const run = (tabs, fn) => { if (tabs.some(canTab)) { try { fn(); } catch (e) { console.warn(e); } } };
+            run(['news'], loadNews);
+            run(['reviews'], loadReviews);
+            run(['results'], loadResults);
+            run(['videos'], loadHeroVideos);
+            run(['teachers', 'schedule'], loadTeachers);
+            run(['schedule'], loadSchedule);
+            run(['students', 'groups', 'schedule'], loadStudents);
+            run(['referrals'], loadReferrals);
+            run(['groups'], loadAdminGroups);
+            run(['lessons'], loadLessons);
+            run(['mocks'], () => { if (window.loadMocks) loadMocks(); });
+            run(['design'], loadDesign);
+            let last = window.ADM_ROLE === 'curator' ? 'control' : 'home'; try { last = sessionStorage.getItem('admTab') || last; } catch (e) {}
+            switchTab(document.getElementById('panel-' + last) && canTab(last) ? last : 'home');
+        }
+
+        const ADM_HINTS = {
+            home: '',
+            olympiad: 'Онлайн-олимпиада: создайте тест, проверьте и нажмите «Подтвердить и опубликовать» — на главной появится кнопка «Олимпиада», а в назначенное время тест откроется участникам. После окончания — «Результаты»: проверить и опубликовать.',
+            control: 'Как работают учителя: отмечена ли посещаемость после каждого урока, вовремя ли начинают видеоуроки, сколько длятся уроки, посещаемость и оценки учеников. Идущий урок можно открыть и посмотреть. Замечание учитель увидит на главной своего кабинета.',
+            partners: 'Учителя со стороны, которые платят за то, чтобы вести уроки на нашей платформе. Одобряйте заявки и продлевайте доступ после оплаты.',
+            catalog: 'Курсы, цены и описания на главной. Нажмите «Сохранить» — и всё сразу обновится на сайте.',
+            teachers: 'Карточки в «Команде экспертов» и страницы учителей. Порядок меняется стрелками ↑ ↓.',
+            blog: 'Статьи в блоке «Академический блог и советы» на главной. Картинку можно сделать прямо здесь — в том же стиле, что и сейчас.',
+            news: 'Записи на странице «Новости»: заголовок, текст, дата. Остаются, пока вы их не удалите.',
+            reviews: 'Отзывы с сайта приходят сюда «На проверке» — опубликуйте, если всё в порядке. Можно добавить отзыв и вручную.',
+            results: 'Сертификаты и баллы учеников на странице «Результаты». Закройте на фото номер и штрихкод.',
+            videos: 'Карусель видео вверху главной: листается сама. Лучше всего вертикальные видео 9:16 (как Reels).',
+            announcement: 'Одна строка СВЕРХУ на каждой странице (например: «Набор открыт — осталось 5 мест»). Можно выключить в любой момент.',
+            promo: 'Промокоды для блока цен: скидка в процентах или бесплатно, с датой окончания по желанию.',
+            students: 'Все аккаунты сайта. Здесь же можно сделать человека учителем или админом.',
+            salary: 'Учитель получает свою долю (по умолчанию 40%) за каждого ученика, который был на уроке или не предупредил о пропуске за 24 часа. Здесь — цены, формат групп, суммы по учителям, бонусы, штрафы и отметка о выплате.',
+            attendance: 'Журнал посещаемости как в школе: месяц, ученики и дни уроков. Учитель сам отмечает только сегодняшний урок — прошлые и будущие отмечает или исправляет куратор здесь.',
+            journal: 'Все ученики всех учителей: группа, каждая оценка, посещаемость, динамика и mock-тесты. Нажмите на ученика — откроется график и вся история. Можно скачать Excel.',
+            groups: 'Группы учителей: передать другому учителю (с историей), добавить второго учителя (только просмотр), отправить в архив, скачать Excel или удалить.',
+            schedule: 'Найдите ученика по никнейму. Урок появится у ученика в кабинете и у учителя в расписании.',
+            lessons: 'Журнал видеоуроков: кто вёл, с какого и до какого времени, сколько был каждый ученик.',
+            mocks: 'Mock-тесты IELTS: создать тест, посмотреть результаты учеников.',
+            referrals: 'Друг зарегистрировался по ссылке → скидка 10% ему. Оплатил первый месяц → нажмите «Друг оплатил», пригласившему положено 20%.',
+            design: 'Акцентный цвет и логотип всего сайта.'
+        };
+        const ADM_ADD = {
+            news: ['Новая новость', 'Новая новость', 'news-items', 'Все новости'],
+            reviews: ['Добавить отзыв вручную', 'Отзыв вручную', 'review-items', 'Все отзывы'],
+            results: ['Добавить результат', 'Новый результат ученика', 'result-items', 'Результаты на сайте'],
+            videos: ['Добавить видео', 'Новое видео на главную', 'video-items', 'Видео в карусели'],
+            teachers: ['Добавить учителя', null, 'teacher-items', 'Учителя на сайте'],
+            schedule: ['Добавить урок', 'Новый урок в расписание', 'schedule-items', 'Уроки в расписании']
+        };
+        function admForm(tab) { const pnl = document.getElementById('panel-' + tab); return pnl && pnl.querySelector(tab === 'teachers' ? '#teacher-form' : '.admin-form'); }
+        function admOpenForm(tab) {
+            const f = admForm(tab), bar = document.getElementById('adm-add-' + tab);
+            if (!f) return;
+            f.hidden = false; if (bar) bar.hidden = true;
+            const first = f.querySelector('input:not([type=file]):not([type=checkbox]), textarea');
+            setTimeout(() => { f.scrollIntoView({ behavior: 'smooth', block: 'start' }); if (first) first.focus({ preventScroll: true }); }, 60);
+        }
+        function admCloseForm(tab) {
+            const f = admForm(tab), bar = document.getElementById('adm-add-' + tab);
+            if (f) f.hidden = true; if (bar) bar.hidden = false;
+        }
+        (function admEnhance() {
+            Object.keys(ADM_ADD).forEach(tab => {
+                const [btn, title, listId, listTitle] = ADM_ADD[tab];
+                const f = admForm(tab); if (!f) return;
+                const bar = document.createElement('div');
+                bar.className = 'adm-addbar'; bar.id = 'adm-add-' + tab;
+                bar.innerHTML = '<button type="button" class="btn-primary"><svg class="ico" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-0.15em"><path d="M12 5v14M5 12h14"/></svg> ' + btn + '</button>';
+                bar.firstChild.onclick = () => admOpenForm(tab);
+                f.before(bar); f.hidden = true;
+                if (title) {
+                    const head = document.createElement('div');
+                    head.className = 'adm-form-head';
+                    head.innerHTML = '<h3>' + title + '</h3><button type="button" class="adm-x" aria-label="Свернуть"><svg class="ico" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-0.15em"><path d="M18 6 6 18M6 6l12 12"/></svg></button>';
+                    head.lastChild.onclick = () => admCloseForm(tab);
+                    f.prepend(head);
+                }
+                const list = document.getElementById(listId);
+                if (list) { const h = document.createElement('h3'); h.className = 'adm-listhead'; h.textContent = listTitle; (tab === 'teachers' ? document.getElementById('tch-retranslate-row') || list : list).before(h); }
+            });
+        })();
+        function admMenu(open) { document.getElementById('adm-shell').classList.toggle('adm-open', !!open); }
+        function admQuick(tab) {
+            switchTab(tab);
+            if (tab === 'blog') { const go = () => { const b = document.getElementById('blg-add-btn'); if (b) b.click(); else setTimeout(go, 150); }; go(); }
+            else admOpenForm(tab);
         }
 
         function switchTab(tab) {
+            if (typeof canTab === 'function' && !canTab(tab)) tab = 'home';
             document.querySelectorAll('.admin-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
             document.querySelectorAll('.admin-panel').forEach(p => p.classList.toggle('active', p.id === `panel-${tab}`));
             if (tab === 'catalog' && window.loadCatalog) window.loadCatalog();
-            const act = document.querySelector('.admin-tab.active'); const pt = document.getElementById('admin-ptitle'); if (pt && act) pt.textContent = act.textContent; const ph = document.getElementById('admin-phint'); if (ph) { const H = { news: 'Записи на странице «Новости» (news.html): заголовок, текст, дата. Остаются в списке, пока вы их не удалите.', announcement: 'Одна короткая строка-баннер СВЕРХУ на каждой странице сайта (например: «Набор открыт — осталось 5 мест»). Можно добавить ссылку и в любой момент выключить.', catalog: 'Курсы, цены и описания на главной. Сохраните — и всё сразу обновится на сайте.' }; ph.textContent = H[tab] || ''; ph.style.display = H[tab] ? '' : 'none'; }
+            if (tab === 'promo' && window.loadPromo) window.loadPromo();
+            if (tab === 'partners' && window.loadPartners) window.loadPartners();
+            if (tab === 'blog' && window.loadBlogAdmin) window.loadBlogAdmin();
+            if (tab === 'salary' && window.loadSalaryAdmin) window.loadSalaryAdmin();
+            if (tab === 'control' && window.CuratorPanel) window.CuratorPanel.load();
+            if (tab === 'olympiad' && window.OlympiadAdmin) window.OlympiadAdmin.load();
+            if (tab === 'attendance' && window.AdmAttendance) window.AdmAttendance.load();
+            if (tab === 'journal' && window.StarthJournal) { const jr = document.getElementById('journal-root'); if (jr._jr) jr._jr.reload(); else jr._jr = StarthJournal.mount(jr, { mode: 'admin', scope: window.ADM_SCOPE || '' }); }
+            const act = document.querySelector('.admin-tab.active');
+            const name = act ? (act.querySelector('.tl') || act).textContent : '';
+            document.getElementById('admin-ptitle').textContent = name;
+            document.getElementById('adm-mtitle').textContent = name;
+            document.getElementById('adm-crumb').textContent = act ? act.dataset.grp || '' : '';
+            const ph = document.getElementById('admin-phint'); ph.textContent = ADM_HINTS[tab] || ''; ph.style.display = ADM_HINTS[tab] ? '' : 'none';
+            admMenu(false);
+            window.scrollTo({ top: 0 });
+            try { sessionStorage.setItem('admTab', tab); } catch (e) {}
         }
 
         if (typeof FIREBASE_READY !== 'undefined' && FIREBASE_READY) {
             auth.onAuthStateChanged(async (user) => {
                 if (!user) return;
-                const adminDoc = await db.collection('admins').doc(user.uid).get();
-                if (adminDoc.exists) showDashboard();
+                const acc = await admAccess(user.uid);
+                if (acc) { window.ADM_ROLE = acc.role; window.ADM_SCOPE = acc.scope; showDashboard(); }
             });
         }
 
@@ -637,7 +1100,7 @@
             } catch (err) { statusEl.textContent = 'Ошибка: ' + err.message; statusEl.className = 'status-msg error'; }
         }
         function toggleNews(id, publish) { db.collection('news').doc(id).update({ published: publish }).then(loadNews).catch(err => alert('Ошибка: ' + err.message)); }
-        function deleteNews(id) { if (confirm('Удалить новость?')) db.collection('news').doc(id).delete().then(loadNews).catch(err => alert('Ошибка: ' + err.message)); }
+        async function deleteNews(id) { if (await StarthUI.confirm('Удалить новость?')) db.collection('news').doc(id).delete().then(loadNews).catch(err => alert('Ошибка: ' + err.message)); }
 
 
         // ── Automatic translation of teachers / reviews / news ──
@@ -744,7 +1207,7 @@
             } catch (err) { alert('Ошибка: ' + err.message); }
             loadReviews();
         }
-        function deleteReview(id) { if (confirm('Удалить отзыв?')) db.collection('reviews').doc(id).delete().then(loadReviews).catch(err => alert('Ошибка: ' + err.message)); }
+        async function deleteReview(id) { if (await StarthUI.confirm('Удалить отзыв?')) db.collection('reviews').doc(id).delete().then(loadReviews).catch(err => alert('Ошибка: ' + err.message)); }
 
 
         // ══════════════════════════════════════════════
@@ -875,8 +1338,8 @@
             });
         }
         function doc_id(id) { return String(id).replace(/[^A-Za-z0-9_-]/g, ''); }
-        function deleteResult(id) {
-            if (confirm('Удалить этот результат с сайта?')) db.collection('results').doc(id).delete().then(loadResults).catch(err => alert('Ошибка: ' + err.message));
+        async function deleteResult(id) {
+            if (await StarthUI.confirm('Удалить этот результат с сайта?')) db.collection('results').doc(id).delete().then(loadResults).catch(err => alert('Ошибка: ' + err.message));
         }
 
         // ── Hero videos (carousel on the home page) ──
@@ -1044,7 +1507,7 @@
 
         async function deleteHeroVideo(id) {
             const v = heroVideosCache.find(x => doc_id(x.id) === id);
-            if (!v || !confirm('Удалить это видео с сайта?')) return;
+            if (!v || !await StarthUI.confirm('Удалить это видео с сайта?')) return;
             try {
                 await db.collection('heroVideos').doc(v.id).delete();
                 if (v.storagePath && firebase.storage) {
@@ -1055,10 +1518,8 @@
         }
 
         // ── Teachers ──
-        // The 5 teachers that used to be hard-coded in about.html / teacher.html.
-        const SEED_TEACHERS = window.BUILTIN_TEACHERS;   // from teachers-data.js (with UZ/EN translations)
-
-        let teachersManaged = false;
+        // Teachers live only in the database: the admin adds them here (nothing is hard-coded in the site files).
+        const teachersManaged = true;
         let teachersCache = {};        // id -> teacher data
         let editingTeacherId = null;
         let teacherPhoto = '';         // '' = none, otherwise data URL or image path
@@ -1077,20 +1538,12 @@
 
         async function loadTeachers() {
             try {
-                const flag = await db.collection('settings').doc('teachers').get();
-                teachersManaged = !!(flag.exists && flag.data().managed);
-                let list;
-                if (teachersManaged) {
-                    const snap = await db.collection('teachers').get();
-                    list = [];
-                    snap.forEach(d => list.push({ id: d.id, ...d.data() }));
-                    list.sort((a, b) => (a.order || 999) - (b.order || 999) || String(a.createdAt || '').localeCompare(String(b.createdAt || '')));
-                } else {
-                    list = SEED_TEACHERS.map((t, i) => ({ ...t, order: i + 1 }));
-                }
+                const snap = await db.collection('teachers').get();
+                const list = [];
+                snap.forEach(d => list.push({ id: d.id, ...d.data() }));
+                list.sort((a, b) => (a.order || 999) - (b.order || 999) || String(a.createdAt || '').localeCompare(String(b.createdAt || '')));
                 teachersCache = {};
                 list.forEach(t => { teachersCache[t.id] = t; });
-                document.getElementById('teachers-seed-banner').style.display = teachersManaged ? 'none' : 'block';
                 renderTeachers(list);
                 populateScheduleTeachers(list);
             } catch (err) {
@@ -1099,11 +1552,27 @@
             }
         }
 
+        // Same video under two teachers = visitors see the wrong person in the player.
+        function videoKey(v) {
+            const i = v && window.parseVideoLink ? parseVideoLink(v) : null;
+            if (!i) return '';
+            return i.type === 'youtube' ? 'yt:' + i.id : i.type === 'instagram' ? 'ig:' + i.code : 'f:' + i.url;
+        }
+        function videoTwin(video, selfId) {
+            const k = videoKey(video);
+            if (!k) return null;
+            return Object.values(teachersCache).find(o => doc_id(o.id) !== selfId && videoKey(o.video) === k) || null;
+        }
+
         function renderTeachers(list) {
             const wrap = document.getElementById('teacher-items');
             if (!list.length) { wrap.innerHTML = '<div class="empty-state">Учителей пока нет — добавьте первого выше.</div>'; return; }
             wrap.innerHTML = '';
-            list.forEach(t => {
+            list.forEach((t, idx) => {
+                const twin = videoTwin(t.video, doc_id(t.id));
+                const videoLine = t.video
+                    ? `<div class="meta" style="margin-top:4px;"><svg class="ico" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-0.15em"><rect x="2" y="3" width="20" height="18" rx="2"/><path d="M7 3v18M17 3v18M2 8h5M2 12h20M2 16h5M17 8h5M17 16h5"/></svg> Видео: <a href="${escapeHtml(t.video)}" target="_blank" rel="noopener" style="word-break:break-all;">${escapeHtml(t.video)}</a>${twin ? ` <span style="color:#e5484d;font-weight:600;">— такое же видео, как у «${escapeHtml(twin.name)}». Вставьте ссылку на видео этого учителя.</span>` : ''}</div>`
+                    : '<div class="meta" style="margin-top:4px;opacity:.7;"><svg class="ico" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-0.15em"><rect x="2" y="3" width="20" height="18" rx="2"/><path d="M7 3v18M17 3v18M2 8h5M2 12h20M2 16h5M17 8h5M17 16h5"/></svg> Видео не добавлено</div>';
                 const card = document.createElement('div');
                 card.className = 'admin-card';
                 const photo = /^(data:image\/|https?:\/\/|images\/)/i.test(t.photo || '') ? `<img class="admin-thumb" src="${escapeHtml(t.photo)}" alt="" onerror="this.style.visibility='hidden'">` : '<div class="admin-thumb"></div>';
@@ -1112,10 +1581,13 @@
                     <div class="admin-card-row">
                         ${photo}
                         <div>
-                            <h3>${escapeHtml(t.name)} ${t.badge ? `<span class="chip">${escapeHtml(t.badge)}</span>` : ''}${t.i18n ? '<span class="chip" title="Есть переводы на другие языки">UZ · EN</span>' : ''}</h3>
+                            <h3>${teachersManaged ? `<span class="chip" title="Место на сайте">№${idx + 1}</span> ` : ''}${escapeHtml(t.name)} ${t.badge ? `<span class="chip">${escapeHtml(t.badge)}</span>` : ''}${t.i18n ? '<span class="chip" title="Есть переводы на другие языки">UZ · EN</span>' : ''}</h3>
                             <div class="meta">${escapeHtml(t.role)}</div>
                             <p>${escapeHtml(t.bio)}</p>
+                            ${videoLine}
                             ${teachersManaged ? `<div class="admin-card-actions">
+                                <button class="btn-small" onclick="moveTeacher('${id}', -1)" ${idx === 0 ? 'disabled style="opacity:.4;cursor:default"' : ''} title="Показывать раньше">↑ Выше</button>
+                                <button class="btn-small" onclick="moveTeacher('${id}', 1)" ${idx === list.length - 1 ? 'disabled style="opacity:.4;cursor:default"' : ''} title="Показывать позже">↓ Ниже</button>
                                 <button class="btn-small primary" onclick="editTeacher('${id}')">Изменить</button>
                                 <button class="btn-small danger" onclick="deleteTeacher('${id}')">Удалить</button>
                             </div>` : ''}
@@ -1132,26 +1604,6 @@
             group.innerHTML = list.length
                 ? list.map(t => `<option value="${escapeHtml(doc_id(t.id))}">${escapeHtml(t.name)}</option>`).join('')
                 : '<option disabled>Список учителей пуст</option>';
-        }
-
-        async function seedTeachers(silent) {
-            const statusId = 'seed-status';
-            try {
-                const batch = db.batch();
-                const now = new Date().toISOString();
-                SEED_TEACHERS.forEach((t, i) => {
-                    const { id, ...data } = t;
-                    batch.set(db.collection('teachers').doc(id), { ...data, initials: data.initials || makeInitials(data.name), order: i + 1, createdAt: now });
-                });
-                batch.set(db.collection('settings').doc('teachers'), { managed: true });
-                await batch.commit();
-                teachersManaged = true;
-                if (!silent) setStatus(statusId, 'Готово — теперь всех учителей можно менять и удалять.', true);
-                await loadTeachers();
-            } catch (err) {
-                setStatus(statusId, 'Ошибка: ' + err.message + ' (проверьте, что правила Firestore обновлены — см. FIREBASE_SETUP.md)', false);
-                throw err;
-            }
         }
 
         async function onTeacherPhoto(input) {
@@ -1174,10 +1626,11 @@
 
         function resetTeacherForm() {
             editingTeacherId = null;
-            ['tch-name', 'tch-role', 'tch-badge', 'tch-tags', 'tch-bio', 'tch-bio-full', 'tch-video'].forEach(id => { document.getElementById(id).value = ''; });
+            ['tch-name', 'tch-name-lat', 'tch-role', 'tch-badge', 'tch-tags', 'tch-bio', 'tch-bio-full', 'tch-video'].forEach(id => { document.getElementById(id).value = ''; });
             document.querySelectorAll('.tch-cert-label, .tch-cert-href').forEach(i => { i.value = ''; });
             removeTeacherPhoto();
             document.getElementById('tch-lang').value = 'ru';
+            tchNameHint();
             document.getElementById('teacher-form-title').textContent = 'Добавить учителя';
             document.getElementById('tch-save-btn').textContent = 'Добавить учителя';
             document.getElementById('tch-cancel-btn').style.display = 'none';
@@ -1186,9 +1639,12 @@
         function editTeacher(id) {
             const t = teachersCache[id];
             if (!t) return;
+            admOpenForm('teachers');
             editingTeacherId = id;
             document.getElementById('tch-lang').value = t.srcLang || 'ru';
             document.getElementById('tch-name').value = t.name || '';
+            document.getElementById('tch-name-lat').value = (t.i18n && ((t.i18n.uz && t.i18n.uz.name) || (t.i18n.en && t.i18n.en.name))) || '';
+            tchNameHint();
             document.getElementById('tch-role').value = t.role || '';
             document.getElementById('tch-badge').value = t.badge || '';
             document.getElementById('tch-tags').value = (t.tags || []).join(', ');
@@ -1204,7 +1660,7 @@
             document.getElementById('teacher-form-title').textContent = 'Изменить: ' + (t.name || '');
             document.getElementById('tch-save-btn').textContent = 'Сохранить изменения';
             document.getElementById('tch-cancel-btn').style.display = 'inline-block';
-            document.getElementById('teacher-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
+            
         }
 
         async function saveTeacher() {
@@ -1225,13 +1681,12 @@
             if (certs.some(c => !/^(https?:\/\/|images\/)/i.test(c.href))) return setStatus('tch-status', 'Ссылка на сертификат должна начинаться с https://', false);
 
             if (video && !(window.parseVideoLink && parseVideoLink(video))) return setStatus('tch-status', 'Ссылка на видео не распознана: нужна https-ссылка на YouTube, Instagram или .mp4.', false);
+            const twin = videoTwin(video, editingTeacherId);
+            if (twin && !await StarthUI.confirm('Это видео уже стоит у учителя «' + twin.name + '». На сайте у обоих будет одно и то же видео. Всё равно сохранить?')) return;
 
             try {
-                // First change ever: move the built-in 5 into the database so they don't disappear.
-                if (!teachersManaged) {
-                    if (!confirm('Сначала перенесу 5 текущих учителей из кода в базу, чтобы они не пропали с сайта. Продолжить?')) return;
-                    await seedTeachers(true);
-                }
+                // old cached pages still look at this flag before reading the teachers list
+                db.collection('settings').doc('teachers').set({ managed: true }, { merge: true }).catch(() => {});
                 const srcLang = document.getElementById('tch-lang').value || 'ru';
                 setStatus('tch-status', 'Перевожу на другие языки…', true);
                 const tr = await StarthI18n.translateFields(
@@ -1241,6 +1696,11 @@
                 const i18n = {};
                 StarthI18n.LANGS.filter(l => l !== srcLang).forEach(l => { i18n[l] = Object.assign({}, prev[l] || {}, tr[l] || {}); });
                 const warn = tr._failed ? ' Часть текстов не удалось перевести автоматически (лимит сервиса перевода) — на сайте они покажутся на исходном языке; позже нажмите «Обновить переводы».' : '';
+                // Latin spelling of the name for the UZ / EN site (empty = automatic transliteration).
+                const nameLat = document.getElementById('tch-name-lat').value.trim();
+                StarthI18n.LANGS.filter(l => l !== srcLang && l !== 'ru').forEach(l => {
+                    if (nameLat) i18n[l].name = nameLat; else delete i18n[l].name;
+                });
                 const data = { name, role, badge, tags, bio, bioFull, video, photo: teacherPhoto || '', certs, initials: makeInitials(name), srcLang, i18n, ...deriveScore(badge) };
                 if (editingTeacherId) {
                     await db.collection('teachers').doc(editingTeacherId).update(data);
@@ -1255,16 +1715,34 @@
             } catch (err) { setStatus('tch-status', 'Ошибка: ' + err.message, false); }
         }
 
-        function deleteTeacher(id) {
+        function tchNameHint() {
+            const el = document.getElementById('tch-name-auto'); if (!el) return;
+            const n = document.getElementById('tch-name').value.trim();
+            el.textContent = n ? StarthI18n.translit(n, 'uz') : '—';
+        }
+
+        // Order of teachers on the site ("Команда экспертов"): move a card up / down.
+        async function moveTeacher(id, dir) {
+            const list = Object.values(teachersCache).sort((a, b) => (a.order || 999) - (b.order || 999) || String(a.createdAt || '').localeCompare(String(b.createdAt || '')));
+            const i = list.findIndex(t => t.id === id), j = i + dir;
+            if (i < 0 || j < 0 || j >= list.length) return;
+            [list[i], list[j]] = [list[j], list[i]];
+            try {
+                const batch = db.batch();
+                list.forEach((t, k) => { if (t.order !== k + 1) batch.update(db.collection('teachers').doc(t.id), { order: k + 1 }); });
+                await batch.commit();
+                await loadTeachers();
+            } catch (err) { alert('Ошибка: ' + err.message); }
+        }
+
+        async function deleteTeacher(id) {
             const t = teachersCache[id];
-            if (!confirm('Удалить учителя «' + (t ? t.name : id) + '» с сайта? Уроки в расписании, где он указан, останутся.')) return;
+            if (!await StarthUI.confirm('Удалить учителя «' + (t ? t.name : id) + '» с сайта? Уроки в расписании, где он указан, останутся.')) return;
             db.collection('teachers').doc(id).delete().then(() => { if (editingTeacherId === id) resetTeacherForm(); loadTeachers(); }).catch(err => alert('Ошибка: ' + err.message));
         }
 
         // ── Schedule ──
-        const TEACHER_NAMES = {
-            firdavs: 'Фирдавс', sadokat: 'Садокат', javokhir: 'Жавохир', behruz: 'Бехруз', azizbek: 'Азизбек'
-        };
+        const TEACHER_NAMES = {};   // names come from the teachers list (teachersCache)
 
         let checkedNickname = null;
         document.getElementById('sch-nickname').addEventListener('blur', async (e) => {
@@ -1288,8 +1766,10 @@
 
         function loadSchedule() {
             // sorted here: two orderBy() fields would need a manual Firestore index
+            if (scopeOn() && !allStudents.length) { window.__schedPending = true; return; }   // wait for «his» teachers
             db.collection('schedule').get().then(rawSnap => {
-                const docs = []; rawSnap.forEach(d => docs.push(d));
+                const mine = scopeOn() ? new Set(allStudents.filter(s => isTeacherRole(s.role)).map(s => s.id)) : null;
+                const docs = []; rawSnap.forEach(d => { if (!mine || mine.has(d.data().teacherUid)) docs.push(d); });
                 docs.sort((a, b) => (a.data().date + ' ' + a.data().time).localeCompare(b.data().date + ' ' + b.data().time));
                 const snap = { empty: docs.length === 0, forEach: fn => docs.forEach(fn) };
                 const wrap = document.getElementById('schedule-items');
@@ -1330,6 +1810,7 @@
             }
 
             let teacherId = null, teacherUid = null, teacherName, room;
+            if (scopeOn() && !teacherValue.startsWith('uid:')) { statusEl.textContent = 'Выберите своего преподавателя.'; statusEl.className = 'status-msg error'; return; }
             if (teacherValue.startsWith('uid:')) {
                 teacherUid = teacherValue.slice(4);
                 const t = allStudents.find(s => s.id === teacherUid);
@@ -1357,19 +1838,48 @@
             } catch (err) { statusEl.textContent = 'Ошибка: ' + err.message; statusEl.className = 'status-msg error'; }
         }
 
-        function deleteSchedule(id) { if (confirm('Удалить урок из расписания?')) db.collection('schedule').doc(id).delete().then(loadSchedule).catch(err => alert('Ошибка: ' + err.message)); }
+        async function deleteSchedule(id) { if (await StarthUI.confirm('Удалить урок из расписания?')) db.collection('schedule').doc(id).delete().then(loadSchedule).catch(err => alert('Ошибка: ' + err.message)); }
 
         // ── Students ──
         let allStudents = [], adminIds = new Set();
+        // Partner curator: his teachers (users.curatorUid == him) + the students of his groups (from the groups themselves —
+        // other profiles are closed to him).
+        async function loadScopedPeople() {
+            const S = window.ADM_SCOPE;
+            const [ts, gs, pres] = await Promise.all([
+                db.collection('users').where('curatorUid', '==', S).get(),
+                db.collection('groups').where('curatorUid', '==', S).get(),
+                db.collection('presence').get().catch(() => null)
+            ]);
+            window.__pres = {}; if (pres) pres.forEach(d => { window.__pres[d.id] = d.data(); });
+            const out = [], seen = {};
+            ts.forEach(d => { seen[d.id] = 1; out.push({ id: d.id, ...d.data(), staffRole: '' }); });
+            gs.forEach(d => { const g = d.data(); (g.members || []).forEach(m => {
+                if (!m || !m.uid) return;
+                if (seen[m.uid]) { const x = out.find(y => y.id === m.uid); if (x && x.role === 'student') x.groupNames.push(g.name || ''); return; }
+                seen[m.uid] = 1; const parts = String(m.name || '').trim().split(/\s+/);
+                out.push({ id: m.uid, name: parts[0] || '', surname: parts.slice(1).join(' '), nickname: m.nickname || '', role: 'student', staffRole: '', groupNames: [g.name || ''], scoped: true });
+            }); });
+            return out;
+        }
         function loadStudents() {
+            if (scopeOn()) {
+                return loadScopedPeople().then(list => {
+                    allStudents = list; adminIds = new Set();
+                    renderStudents(allStudents);
+                    if (allGroups.length) renderAdminGroups();
+                    populateTeacherAccountOptions();
+                    if (window.__schedPending) { window.__schedPending = false; loadSchedule(); }
+                }).catch(err => { document.getElementById('students-items').innerHTML = '<div class="empty-state">Не удалось загрузить: ' + escapeHtml(err.message) + '</div>'; console.warn(err); });
+            }
             Promise.all([
                 db.collection('users').orderBy('createdAt', 'desc').get(),
                 db.collection('admins').get().catch(() => null),
                 db.collection('presence').get().catch(() => null)
             ]).then(([snap, adm, pres]) => {
                 allStudents = []; adminIds = new Set(); window.__pres = {}; if (pres) pres.forEach(d => { window.__pres[d.id] = d.data(); });
-                if (adm) adm.forEach(d => adminIds.add(d.id));
-                snap.forEach(doc => { const u = { id: doc.id, ...doc.data() }; if (u.role === 'admin') adminIds.add(u.id); u.isAdmin = adminIds.has(u.id); allStudents.push(u); });
+                const staffOf = {}; if (adm) adm.forEach(d => { adminIds.add(d.id); staffOf[d.id] = (d.data() || {}).role || 'admin'; });
+                snap.forEach(doc => { const u = { id: doc.id, ...doc.data() }; if (u.role === 'admin') { adminIds.add(u.id); staffOf[u.id] = staffOf[u.id] || 'admin'; } u.isAdmin = adminIds.has(u.id); u.staffRole = staffOf[u.id] || ''; allStudents.push(u); });
                 renderStudents(allStudents);
                 if (allGroups.length) renderAdminGroups();
                 populateTeacherAccountOptions();
@@ -1381,7 +1891,8 @@
         function populateTeacherAccountOptions() {
             const group = document.getElementById('sch-teacher-accounts');
             if (!group) return;
-            const teachers = allStudents.filter(s => s.role === 'teacher');
+            const teachers = allStudents.filter(s => isTeacherRole(s.role));
+            const bi = document.getElementById('sch-teacher-builtin'); if (bi) bi.style.display = scopeOn() ? 'none' : '';
             group.innerHTML = teachers.length
                 ? teachers.map(t => `<option value="uid:${t.id}">${t.name || t.nickname}</option>`).join('')
                 : '<option disabled>Пока никто не назначен (см. вкладку «Ученики»)</option>';
@@ -1403,13 +1914,26 @@
                         <small>${escapeHtml(s.phone) || 'нет телефона'} · ${s.telegram ? '@' + escapeHtml(s.telegram) + ' · ' : ''}${escapeHtml(s.email) || 'нет email'} · с ${s.createdAt ? new Date(s.createdAt).toLocaleDateString('ru-RU') : '—'}</small>
                         ${extra ? `<div class="ar-extra">${escapeHtml(extra)}</div>` : ''}</div>
                     <div class="ar-actions">
-                        <select onchange="changeStudentRole('${s.id}', this.value)" aria-label="Роль">
-                            <option value="student" ${role !== 'teacher' ? 'selected' : ''}>Ученик</option>
+                        ${scopeOn() ? `<span class="ar-badge" style="margin:0">${escapeHtml(ROLE_NAMES[role] || 'Ученик')}</span>${s.groupNames && s.groupNames.length ? `<small style="color:var(--ink-soft)">${escapeHtml(s.groupNames.join(', '))}</small>` : ''}` : `
+                        <select onchange="changeStudentRole('${s.id}', this.value, this)" aria-label="Роль">
+                            <option value="student" ${!ROLE_NAMES[role] || role === 'student' ? 'selected' : ''}>Ученик</option>
                             <option value="teacher" ${role === 'teacher' ? 'selected' : ''}>Преподаватель</option>
+                            ${role === 'partner' ? '<option value="partner" selected>Учитель (партнёр)</option>' : ''}
+                            <option value="curator" ${role === 'curator' ? 'selected' : ''} ${isFullAdmin() ? '' : 'disabled'}>Куратор TheStarth</option>
+                            <option value="partner_curator" ${role === 'partner_curator' ? 'selected' : ''} ${isFullAdmin() ? '' : 'disabled'}>Куратор (партнёр)</option>
                         </select>
-                        <button type="button" class="btn-small ar-admin ${s.isAdmin ? 'on' : ''}" onclick="toggleAdmin('${s.id}', ${s.isAdmin ? 'false' : 'true'})" title="Доступ к админ-панели. Об этом знают только администраторы.">${s.isAdmin ? '🛡 Снять админа' : '🛡 Дать админа'}</button>
+                        ${isTeacherRole(role) ? `<select onchange="setTeacherCurator('${s.id}', this.value, this)" aria-label="Куратор учителя" title="Куратор-партнёр, который видит этого учителя, его группы и уроки">
+                            <option value="">Куратор: TheStarth</option>
+                            ${allStudents.filter(c => c.role === 'partner_curator').map(c => `<option value="${c.id}" ${s.curatorUid === c.id ? 'selected' : ''}>Куратор: ${escapeHtml([c.name, c.surname].filter(Boolean).join(' ') || '@' + (c.nickname || ''))}</option>`).join('')}
+                        </select>` : ''}`}
+                        ${window.ADM_ROLE === 'admin' || !window.ADM_ROLE ? `<select class="ar-staff ${s.staffRole ? 'on' : ''}" onchange="setStaffRole('${s.id}', this.value, this)" aria-label="Доступ к админ-панели" title="Доступ к админ-панели. Об этом знают только администраторы.">
+                            <option value="" ${!s.staffRole ? 'selected' : ''}>Без доступа к админке</option>
+                            ${Object.keys(STAFF_ROLES).filter((k) => !STAFF_ROLES[k].byRole || s.staffRole === k).map((k) => `<option value="${k}" ${s.staffRole === k ? 'selected' : ''} ${STAFF_ROLES[k].byRole ? 'disabled' : ''}>${STAFF_ROLES[k].name}</option>`).join('')}
+                        </select>` : ''}
                     </div>`;
-                if (s.isAdmin) card.querySelector('.ar-main strong').insertAdjacentHTML('beforeend', ' <span class="ar-badge">админ</span>');
+                if (s.staffRole && s.staffRole !== 'curator') card.querySelector('.ar-main strong').insertAdjacentHTML('beforeend', ' <span class="ar-badge">' + escapeHtml((STAFF_ROLES[s.staffRole] || STAFF_ROLES.admin).name.toLowerCase()) + '</span>');
+                if (role === 'curator' || s.staffRole === 'curator') card.querySelector('.ar-main strong').insertAdjacentHTML('beforeend', ' <span class="ar-badge">куратор TheStarth</span>');
+                if (role === 'partner_curator') card.querySelector('.ar-main strong').insertAdjacentHTML('beforeend', ' <span class="ar-badge">куратор-партнёр · ' + allStudents.filter(t => t.curatorUid === s.id).length + ' учит.</span>');
                 wrap.appendChild(card);
             });
         }
@@ -1426,10 +1950,11 @@
             btn.textContent = old; btn.disabled = false;
         }
         function dirKeys(p) { const set = new Set(); [p.name, p.surname, p.nickname].forEach(v => String(v || '').toLowerCase().split(/\s+/).forEach(w => { for (let i = 2; i <= Math.min(w.length, 15); i++) set.add(w.slice(0, i)); })); return Array.from(set).slice(0, 80); }
+        const ROLE_NAMES = { student: 'Ученик', teacher: 'Преподаватель', partner: 'Учитель (партнёр)', curator: 'Куратор TheStarth', partner_curator: 'Куратор (партнёр)' };
         function filterStudents() {
             const q = document.getElementById('student-search').value.trim().toLowerCase();
             const rf = (document.getElementById('student-role') || {}).value || 'all';
-            const byRole = allStudents.filter(s => rf === 'all' || (rf === 'admin' ? s.isAdmin : rf === 'teacher' ? s.role === 'teacher' : (s.role || 'student') !== 'teacher'));
+            const byRole = allStudents.filter(s => rf === 'all' || (rf === 'admin' ? !!s.staffRole : rf === 'curator' ? (s.role === 'curator' || s.role === 'partner_curator' || s.staffRole === 'curator') : rf === 'teacher' ? s.role === 'teacher' : rf === 'partner' ? s.role === 'partner' : !Object.keys(ROLE_NAMES).filter(k => k !== 'student').includes(s.role || 'student')));
             if (!q) { renderStudents(byRole); return; }
             renderStudents(byRole.filter(s =>
                 (s.name || '').toLowerCase().includes(q) ||
@@ -1439,19 +1964,60 @@
             ));
         }
 
-        async function changeStudentRole(uid, newRole) {
-            if (newRole !== 'teacher') newRole = 'student';
+        // Roles: Ученик / Преподаватель / Куратор TheStarth (admins/{uid}.role = 'curator' — sees everything) /
+        // Куратор (партнёр) (users.role = 'partner_curator' — only teachers attached to him). Curator roles: only a full admin.
+        async function changeStudentRole(uid, newRole, sel) {
+            const u = allStudents.find(x => x.id === uid) || {};
+            const back = () => { if (sel) sel.value = u.role && ROLE_NAMES[u.role] ? u.role : 'student'; };
+            if (newRole === 'partner') return back();   // partners are managed in «Партнёры»
+            if (!ROLE_NAMES[newRole]) newRole = 'student';
+            const nm = [u.name, u.surname].filter(Boolean).join(' ') || '@' + (u.nickname || '');
+            if ((newRole === 'curator' || newRole === 'partner_curator') && !isFullAdmin()) { alert('Кураторов назначает только администратор.'); return back(); }
+            if (uid === auth.currentUser.uid) { alert('Нельзя менять свою роль — попросите другого администратора.'); return back(); }
+            if (newRole === 'curator' && !await StarthUI.confirm('Сделать ' + nm + ' куратором TheStarth?\n\nОн увидит в админ-панели всех учителей и все группы (и партнёров): контроль учителей, учеников, группы, расписание и журналы.')) return back();
+            if (newRole === 'partner_curator' && !await StarthUI.confirm('Сделать ' + nm + ' куратором-партнёром?\n\nОн сможет войти в админ-панель, но увидит только учителей, которых вы к нему прикрепите (поле «Куратор» у учителя), их группы, уроки и оценки.')) return back();
             try {
                 await db.collection('users').doc(uid).update({ role: newRole, roleChangedAt: Date.now() });
-                db.collection('directory').doc(uid).set({ role: newRole }, { merge: true }).catch(() => {});
+                db.collection('directory').doc(uid).set({ role: ['teacher', 'curator', 'partner_curator'].indexOf(newRole) !== -1 ? 'teacher' : 'student' }, { merge: true }).catch(() => {});
+                if (newRole === 'curator') await db.collection('admins').doc(uid).set({ role: 'curator', grantedAt: new Date().toISOString(), grantedBy: auth.currentUser.uid });
+                else if (u.staffRole === 'curator') await db.collection('admins').doc(uid).delete();
                 loadStudents();
             } catch (err) { alert('Ошибка: ' + err.message); loadStudents(); }
         }
+        // Attach a teacher to a partner curator. Also marks the teacher's groups, attendance, grades and lessons
+        // with curatorUid, so the curator sees the whole history (and new records get it automatically).
+        async function setTeacherCurator(uid, cu, sel) {
+            const t = allStudents.find(x => x.id === uid) || {}, c = allStudents.find(x => x.id === cu);
+            const tn = [t.name, t.surname].filter(Boolean).join(' ') || '@' + (t.nickname || '');
+            const cn = c ? [c.name, c.surname].filter(Boolean).join(' ') || '@' + (c.nickname || '') : 'TheStarth';
+            if (!await StarthUI.confirm(cu ? `Прикрепить учителя ${tn} к куратору ${cn}?\n\nКуратор увидит его группы, уроки, посещаемость и оценки (и всю прошлую историю).` : `Открепить ${tn} от куратора-партнёра? Его будут вести кураторы TheStarth.`)) { if (sel) sel.value = t.curatorUid || ''; return; }
+            if (sel) sel.disabled = true;
+            try {
+                await db.collection('users').doc(uid).update({ curatorUid: cu });
+                const snaps = await Promise.all(['groups', 'attendance', 'grades', 'lessonSessions'].map(n => db.collection(n).where('teacherUid', '==', uid).get().catch(() => null)));
+                const ops = []; snaps.forEach(sn => { if (sn) sn.forEach(d => ops.push(b => b.update(d.ref, { curatorUid: cu }))); });
+                await commitChunks(ops);
+                t.curatorUid = cu;
+                StarthUI.toast(cu ? 'Учитель прикреплён к куратору ' + cn + ' (обновлено записей: ' + ops.length + ').' : 'Учитель откреплён.', 'ok');
+                renderStudents(allStudents); loadAdminGroups();
+            } catch (err) { alert('Ошибка: ' + err.message); if (sel) { sel.value = t.curatorUid || ''; sel.disabled = false; } }
+        }
         // Admin access is separate from the teacher/student role, so one person can be admin AND teacher.
         // It is stored in admins/<uid>, which only admins can read: nobody else ever sees who is an admin.
+        async function setStaffRole(uid, role, sel) {
+            const u = allStudents.find(x => x.id === uid) || {};
+            if (uid === auth.currentUser.uid && role !== 'admin') { alert('Нельзя менять свою роль — попросите другого администратора.'); if (sel) sel.value = u.staffRole || ''; return; }
+            const label = role ? STAFF_ROLES[role].name + ' (' + STAFF_ROLES[role].hint + ')' : 'без доступа к админ-панели';
+            if (!await StarthUI.confirm('Сделать ' + ([u.name, u.surname].filter(Boolean).join(' ') || '@' + (u.nickname || '')) + ': ' + label + '?')) { if (sel) sel.value = u.staffRole || ''; return; }
+            try {
+                if (role) await db.collection('admins').doc(uid).set({ role, grantedAt: new Date().toISOString(), grantedBy: auth.currentUser.uid });
+                else { await db.collection('admins').doc(uid).delete(); if (u.role === 'admin') await db.collection('users').doc(uid).update({ role: 'student' }).catch(() => {}); }
+                loadStudents();
+            } catch (err) { alert('Ошибка: ' + err.message); loadStudents(); }
+        }
         async function toggleAdmin(uid, on) {
             if (!on && uid === auth.currentUser.uid) { alert('Нельзя снять права администратора с самого себя — попросите другого админа.'); return; }
-            if (!confirm(on ? 'Дать этому человеку доступ к админ-панели?' : 'Забрать доступ к админ-панели?')) return;
+            if (!await StarthUI.confirm(on ? 'Дать этому человеку доступ к админ-панели?' : 'Забрать доступ к админ-панели?')) return;
             try {
                 if (on) await db.collection('admins').doc(uid).set({ grantedAt: new Date().toISOString(), grantedBy: auth.currentUser.uid });
                 else {
@@ -1517,7 +2083,7 @@
         // ── Groups (teacher cabinet) ──
         let allGroups = [];
         function loadAdminGroups() {
-            db.collection('groups').get().then(snap => {
+            (scopeOn() ? db.collection('groups').where('curatorUid', '==', window.ADM_SCOPE) : db.collection('groups')).get().then(snap => {
                 allGroups = [];
                 snap.forEach(d => allGroups.push({ id: d.id, ...d.data() }));
                 allGroups.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ru'));
@@ -1527,16 +2093,85 @@
                 console.warn(err);
             });
         }
+        const GDAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+        function teacherOptions(selected) {
+            const ts = allStudents.filter(s => isTeacherRole(s.role) && (!scopeOn() || s.curatorUid === window.ADM_SCOPE))
+                .sort((a, b) => ([a.name, a.surname].join(' ')).localeCompare([b.name, b.surname].join(' '), 'ru'));
+            return ts.length ? ts.map(t => `<option value="${t.id}" ${t.id === selected ? 'selected' : ''}>${escapeHtml([t.name, t.surname].filter(Boolean).join(' ') || t.nickname || t.email || t.id)}${t.role === 'partner' ? ' (партнёр)' : ''}</option>`).join('')
+                : '<option value="" disabled selected>' + (scopeOn() ? 'К вам пока не прикрепили учителей' : 'Нет преподавателей — назначьте во вкладке «Ученики и роли»') + '</option>';
+        }
+        function renderGroupForm() {
+            const sel = document.getElementById('gn-teacher'); if (sel) { const v = sel.value; sel.innerHTML = teacherOptions(v); }
+            const d = document.getElementById('gn-days');
+            if (d && !d.children.length) d.innerHTML = GDAYS.map((n, i) => `<label class="grp-day"><input type="checkbox" value="${i}" ${[0, 2, 4].includes(i) ? 'checked' : ''}><span>${n}</span></label>`).join('');
+            const cw = document.getElementById('grp-cur-wrap'), cs = document.getElementById('grp-cur');
+            if (cw) cw.style.display = scopeOn() ? 'none' : '';
+            if (cs && !scopeOn()) { const v = cs.value; cs.innerHTML = '<option value="">Все группы</option><option value="-">Только TheStarth</option>' + allStudents.filter(c => c.role === 'partner_curator').map(c => `<option value="${c.id}">${escapeHtml([c.name, c.surname].filter(Boolean).join(' ') || '@' + (c.nickname || ''))}</option>`).join(''); cs.value = v; }
+        }
+        async function createAdminGroup(btn) {
+            const st = document.getElementById('gn-status');
+            const name = document.getElementById('gn-name').value.trim(), uid = document.getElementById('gn-teacher').value;
+            const days = Array.from(document.querySelectorAll('#gn-days input:checked')).map(i => +i.value), time = document.getElementById('gn-time').value;
+            const t = allStudents.find(x => x.id === uid);
+            if (!name) { st.textContent = 'Введите название группы.'; st.className = 'status-msg error'; return; }
+            if (!t) { st.textContent = 'Выберите преподавателя.'; st.className = 'status-msg error'; return; }
+            if (!days.length) { st.textContent = 'Выберите хотя бы один день.'; st.className = 'status-msg error'; return; }
+            btn.disabled = true;
+            try {
+                const ref = db.collection('groups').doc();
+                const data = { name, subject: document.getElementById('gn-subject').value, days, time,
+                    scheduleText: days.map(i => GDAYS[i]).join(', ') + (time ? ' · ' + time : ''),
+                    teacherUid: uid, teacherName: [t.name, t.surname].filter(Boolean).join(' ') || t.nickname || 'Преподаватель',
+                    curatorUid: scopeOn() ? window.ADM_SCOPE : (t.curatorUid || ''),
+                    room: 'TheStarth-g-' + ref.id.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 14),
+                    members: [], memberUids: [], createdAt: new Date().toISOString(), createdBy: auth.currentUser.uid };
+                await ref.set(data);
+                allGroups.push({ id: ref.id, ...data }); allGroups.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ru'));
+                document.getElementById('gn-name').value = '';
+                st.textContent = 'Группа «' + name + '» создана. Добавьте учеников в её карточке ниже.'; st.className = 'status-msg ok';
+                renderAdminGroups();
+            } catch (err) { st.textContent = 'Ошибка: ' + err.message; st.className = 'status-msg error'; }
+            btn.disabled = false;
+        }
+        async function addGroupMember(id) {
+            const g = allGroups.find(x => x.id === id), inp = document.getElementById('grp-add-' + id); if (!g || !inp) return;
+            const nick = inp.value.trim().replace(/^@/, '').toLowerCase();
+            if (!/^[a-z0-9_.-]{2,40}$/.test(nick)) return StarthUI.toast('Введите никнейм ученика, например aziz_2010.', 'warn');
+            if ((g.members || []).some(m => m.nickname === nick)) return StarthUI.toast('@' + nick + ' уже в этой группе.', 'warn');
+            try {
+                const nd = await db.collection('nicknames').doc(nick).get();
+                if (!nd.exists) return alert('Ученик @' + nick + ' не найден. Он должен сначала зарегистрироваться на сайте.');
+                const muid = nd.data().uid;
+                let nm = nd.data().displayName || '';
+                if (!nm) { try { const dd = await db.collection('directory').doc(muid).get(); if (dd.exists) nm = [dd.data().name, dd.data().surname].filter(Boolean).join(' '); } catch (e) {} }
+                const members = (g.members || []).concat([{ uid: muid, nickname: nick, name: nm }]);
+                await db.collection('groups').doc(id).update({ members, memberUids: members.map(m => m.uid) });
+                g.members = members; g.memberUids = members.map(m => m.uid); renderAdminGroups();
+                StarthUI.toast('@' + nick + ' добавлен(а) в группу «' + g.name + '».', 'ok');
+            } catch (err) { alert('Ошибка: ' + err.message); }
+        }
+        async function removeGroupMember(id, uid) {
+            const g = allGroups.find(x => x.id === id); if (!g) return;
+            const m = (g.members || []).find(x => x.uid === uid); if (!m) return;
+            if (!await StarthUI.confirm('Убрать @' + m.nickname + ' из группы «' + g.name + '»? Его оценки и посещаемость останутся в истории.')) return;
+            const members = g.members.filter(x => x.uid !== uid);
+            try { await db.collection('groups').doc(id).update({ members, memberUids: members.map(x => x.uid) }); g.members = members; g.memberUids = members.map(x => x.uid); renderAdminGroups(); }
+            catch (err) { alert('Ошибка: ' + err.message); }
+        }
         function renderAdminGroups() {
+            renderGroupForm();
             const q = (document.getElementById('grp-search').value || '').trim().toLowerCase();
             const f = document.getElementById('grp-filter').value;
+            const cf = (document.getElementById('grp-cur') || {}).value || '';
+            const curName = (uid) => { const c = allStudents.find(x => x.id === uid); return c ? [c.name, c.surname].filter(Boolean).join(' ') || '@' + (c.nickname || '') : 'куратор-партнёр'; };
             const list = allGroups.filter(g =>
                 (f === 'all' || (f === 'archived' ? g.archived : !g.archived)) &&
+                (!cf || (cf === '-' ? !g.curatorUid : g.curatorUid === cf)) &&
                 (!q || [g.name, g.teacherName, g.subject].concat((g.members || []).map(m => m.nickname + ' ' + (m.name || ''))).some(x => (x || '').toLowerCase().includes(q))));
             document.getElementById('grp-count').textContent = `Всего групп: ${allGroups.length}` + (list.length !== allGroups.length ? ` · Показано: ${list.length}` : '');
             const wrap = document.getElementById('grp-items');
             if (!list.length) { wrap.innerHTML = '<div class="empty-state">Групп нет.</div>'; return; }
-            const teachers = allStudents.filter(s => s.role === 'teacher');
+            const teachers = allStudents.filter(s => isTeacherRole(s.role) && (!scopeOn() || s.curatorUid === window.ADM_SCOPE));
             wrap.innerHTML = '';
             list.forEach(g => {
                 const n = (g.members || []).length;
@@ -1544,15 +2179,25 @@
                 card.className = 'admin-card';
                 card.innerHTML = `
                     <h3>${escapeHtml(g.name || '')}${g.archived ? ' <small>(в архиве)</small>' : ''}</h3>
-                    <div class="meta">${escapeHtml(g.subject || '')}${g.scheduleText ? ' · ' + escapeHtml(g.scheduleText) : ''} · Преподаватель: <strong>${escapeHtml(g.teacherName || '—')}</strong> · Учеников: ${n}</div>
-                    <p style="font-size:.85rem;">${(g.members || []).map(m => '@' + escapeHtml(m.nickname)).join(', ') || 'В группе пока нет учеников.'}</p>
+                    <div class="meta">${escapeHtml(g.subject || '')}${g.scheduleText ? ' · ' + escapeHtml(g.scheduleText) : ''} · Преподаватель: <strong>${escapeHtml(g.teacherName || '—')}</strong> · Учеников: ${n}${!scopeOn() && g.curatorUid ? ' · <span class="ar-badge">куратор: ' + escapeHtml(curName(g.curatorUid)) + '</span>' : ''}</div>
+                    <div class="grp-members">${(g.members || []).map(m => `<span class="grp-m">@${escapeHtml(m.nickname)}${m.name ? ' <small>' + escapeHtml(m.name) + '</small>' : ''}<button type="button" title="Убрать из группы" onclick="removeGroupMember('${g.id}','${m.uid}')">×</button></span>`).join('') || '<span style="color:var(--ink-soft);font-size:.85rem;">В группе пока нет учеников.</span>'}
+                        <span class="grp-add"><input type="text" id="grp-add-${g.id}" placeholder="@никнейм ученика" onkeydown="if(event.key==='Enter'){event.preventDefault();addGroupMember('${g.id}')}"><button class="btn-small" type="button" onclick="addGroupMember('${g.id}')">+ Добавить</button></span></div>
+                    <div class="grp-co" style="display:flex;flex-wrap:wrap;gap:.4rem;align-items:center;margin:.2rem 0 .6rem;font-size:.85rem;">
+                        <span style="color:var(--ink-soft);">Вторые учителя (только просмотр):</span>
+                        ${(g.coTeachers || []).map(c => `<span class="grp-co-chip" style="display:inline-flex;align-items:center;gap:.3rem;padding:.2rem .3rem .2rem .65rem;border-radius:999px;background:var(--accent-tint);">${escapeHtml(c.name || '')}<button type="button" class="btn-small" style="padding:.1rem .45rem;" title="Убрать" onclick="removeCoTeacher('${g.id}','${c.uid}')">${Icons.svg('x')}</button></span>`).join('') || '<span>нет</span>'}
+                        <select id="grp-co-${g.id}" style="max-width:200px;">
+                            <option value="">+ добавить учителя…</option>
+                            ${teachers.filter(t => t.id !== g.teacherUid && !(g.coTeacherUids || []).includes(t.id)).map(t => `<option value="${t.id}">${escapeHtml([t.name, t.surname].filter(Boolean).join(' ') || t.nickname || t.email || t.id)}</option>`).join('')}
+                        </select>
+                        <button class="btn-small" onclick="addCoTeacher('${g.id}')">Добавить</button>
+                    </div>
                     <div class="admin-card-actions" style="align-items:center;">
                         <select id="grp-t-${g.id}" style="max-width:220px;">
                             ${teachers.map(t => `<option value="${t.id}" ${t.id === g.teacherUid ? 'selected' : ''}>${escapeHtml(t.name || t.nickname || t.email || t.id)}</option>`).join('')}
                         </select>
                         <button class="btn-small primary" onclick="reassignGroup('${g.id}')">Передать преподавателю</button>
-                        <button class="btn-small" onclick="exportGroupCsv('${g.id}','attendance')">CSV посещаемость</button>
-                        <button class="btn-small" onclick="exportGroupCsv('${g.id}','grades')">CSV оценки</button>
+                        <button class="btn-small" onclick="exportGroupCsv('${g.id}','attendance')">Excel посещаемость</button>
+                        <button class="btn-small" onclick="exportGroupCsv('${g.id}','grades')">Excel оценки</button>
                         <button class="btn-small" onclick="toggleGroupArchive('${g.id}')">${g.archived ? 'Вернуть из архива' : 'В архив'}</button>
                         <button class="btn-small danger" onclick="deleteAdminGroup('${g.id}')">Удалить</button>
                     </div>`;
@@ -1572,19 +2217,29 @@
             const t = allStudents.find(s => s.id === uid);
             if (!g || !t || uid === g.teacherUid) return;
             const name = [t.name, t.surname].filter(Boolean).join(' ') || t.nickname || 'Преподаватель';
-            if (!confirm(`Передать группу «${g.name}» преподавателю ${name}? История посещаемости и оценок перейдёт к нему.`)) return;
+            if (!await StarthUI.confirm(`Передать группу «${g.name}» преподавателю ${name}?\n\nНовый учитель увидит всю историю: посещаемость и оценки. Деньги за уже проведённые уроки остаются у прежнего учителя, новые уроки — у нового.`)) return;
+            const keepOld = g.teacherUid && await StarthUI.confirm('Оставить прежнего учителя (' + (g.teacherName || '') + ') вторым учителем, чтобы он тоже видел группу?');
             try {
-                const [as, gs] = await Promise.all([
-                    db.collection('attendance').where('groupId', '==', id).get(),
-                    db.collection('grades').where('groupId', '==', id).get()
-                ]);
-                const ops = [];
-                as.forEach(d => ops.push(b => b.update(d.ref, { teacherUid: uid })));
-                gs.forEach(d => ops.push(b => b.update(d.ref, { teacherUid: uid })));
-                ops.push(b => b.update(db.collection('groups').doc(id), { teacherUid: uid, teacherName: name }));
-                await commitChunks(ops);
-                g.teacherUid = uid; g.teacherName = name; renderAdminGroups();
+                const co = (g.coTeachers || []).filter(c => c.uid !== uid && c.uid !== g.teacherUid);
+                if (keepOld) co.push({ uid: g.teacherUid, name: g.teacherName || '' });
+                const patch = { teacherUid: uid, teacherName: name, coTeachers: co, coTeacherUids: co.map(c => c.uid), curatorUid: scopeOn() ? window.ADM_SCOPE : (t.curatorUid || '') };
+                await db.collection('groups').doc(id).update(patch);
+                Object.assign(g, patch); renderAdminGroups();
             } catch (err) { alert('Ошибка: ' + err.message); }
+        }
+        async function addCoTeacher(id) {
+            const g = allGroups.find(x => x.id === id), uid = document.getElementById('grp-co-' + id).value;
+            const t = allStudents.find(s => s.id === uid);
+            if (!g || !t) return;
+            const co = (g.coTeachers || []).filter(c => c.uid !== uid).concat([{ uid, name: [t.name, t.surname].filter(Boolean).join(' ') || t.nickname || 'Преподаватель' }]);
+            try { await db.collection('groups').doc(id).update({ coTeachers: co, coTeacherUids: co.map(c => c.uid) }); g.coTeachers = co; g.coTeacherUids = co.map(c => c.uid); renderAdminGroups(); }
+            catch (err) { alert('Ошибка: ' + err.message); }
+        }
+        async function removeCoTeacher(id, uid) {
+            const g = allGroups.find(x => x.id === id); if (!g) return;
+            const co = (g.coTeachers || []).filter(c => c.uid !== uid);
+            try { await db.collection('groups').doc(id).update({ coTeachers: co, coTeacherUids: co.map(c => c.uid) }); g.coTeachers = co; g.coTeacherUids = co.map(c => c.uid); renderAdminGroups(); }
+            catch (err) { alert('Ошибка: ' + err.message); }
         }
         async function toggleGroupArchive(id) {
             const g = allGroups.find(x => x.id === id); if (!g) return;
@@ -1595,9 +2250,10 @@
         // ── Lessons journal ──
         let allLessons = [];
         function loadLessons() {
-            db.collection('lessonSessions').orderBy('startedAt', 'desc').limit(400).get().then(snap => {
+            (scopeOn() ? db.collection('lessonSessions').where('curatorUid', '==', window.ADM_SCOPE) : db.collection('lessonSessions').orderBy('startedAt', 'desc').limit(400)).get().then(snap => {
                 allLessons = [];
                 snap.forEach(d => allLessons.push({ id: d.id, ...d.data() }));
+                allLessons.sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0));
                 renderLessons();
             }).catch(err => {
                 document.getElementById('les-items').innerHTML = '<div class="empty-state">Не удалось загрузить уроки (опубликованы ли новые правила Firestore? См. FIREBASE_SETUP.md).</div>';
@@ -1615,27 +2271,56 @@
             return allLessons.filter(l => l.startedAt >= from &&
                 (!q || [l.teacherName, l.groupName, l.room].concat(Object.values(l.participants || {}).map(p => p.name)).some(x => (x || '').toLowerCase().includes(q))));
         }
+        // what is wrong with a lesson (shown as a red/yellow chip; «Только с проблемами» filter)
+        function lesProblems(l) {
+            const p = [], dur = lesEnd(l) - l.startedAt, live = !l.endedAt, stale = live && Date.now() - (l.lastSeen || 0) > 15 * 60000;
+            const n = Object.keys(l.participants || {}).filter(k => l.participants[k].role !== 'teacher').length;
+            if (stale) p.push('не закрыт учителем');
+            if (!live && dur < 30 * 60000) p.push('короче 30 мин');
+            if (!live && !n) p.push('учеников не было');
+            return p;
+        }
         function renderLessons() {
-            const list = lesFiltered();
+            const tSel = document.getElementById('les-teacher');
+            if (tSel) {
+                const cur = tSel.value, names = Array.from(new Set(allLessons.map(l => l.teacherName || '—'))).sort((a, b) => a.localeCompare(b, 'ru'));
+                tSel.innerHTML = '<option value="">Все учителя</option>' + names.map(n => `<option value="${escapeHtml(n)}" ${n === cur ? 'selected' : ''}>${escapeHtml(n)}</option>`).join('');
+            }
+            const who = tSel ? tSel.value : '', onlyBad = (document.getElementById('les-problems') || {}).checked;
+            const list = lesFiltered().filter(l => (!who || (l.teacherName || '—') === who) && (!onlyBad || lesProblems(l).length));
             const total = list.reduce((a, l) => a + Math.max(0, lesEnd(l) - l.startedAt), 0);
-            document.getElementById('les-count').textContent = `Уроков: ${list.length} · Общее время: ${lesDur(total)}`;
+            const liveNow = list.filter(l => !l.endedAt && Date.now() - (l.lastSeen || 0) <= 15 * 60000).length;
+            const bad = list.filter(l => lesProblems(l).length).length;
+            document.getElementById('les-count').innerHTML =
+                `<div class="les-tile"><b>${list.length}</b><span>уроков</span></div>` +
+                `<div class="les-tile"><b>${lesDur(total)}</b><span>всего</span></div>` +
+                `<div class="les-tile"><b>${list.length ? lesDur(total / list.length) : '—'}</b><span>в среднем урок</span></div>` +
+                `<div class="les-tile ${liveNow ? 'live' : ''}"><b>${liveNow}</b><span>идут сейчас</span></div>` +
+                `<div class="les-tile ${bad ? 'bad' : ''}"><b>${bad}</b><span>с проблемами</span></div>`;
+            // per teacher
+            const by = {};
+            list.forEach(l => { const k = l.teacherName || '—'; const x = by[k] = by[k] || { n: 0, ms: 0, bad: 0 }; x.n++; x.ms += Math.max(0, lesEnd(l) - l.startedAt); if (lesProblems(l).length) x.bad++; });
+            const tk = Object.keys(by).sort((a, b) => by[b].ms - by[a].ms);
+            document.getElementById('les-teachers').innerHTML = tk.length > 1 || who ? `<div class="les-tt"><div class="les-tr les-th"><span>Учитель</span><span>Уроков</span><span>Время</span><span>В среднем</span><span>Проблемы</span></div>` +
+                tk.map(k => `<button type="button" class="les-tr" onclick="document.getElementById('les-teacher').value=${escapeHtml(JSON.stringify(who === k ? '' : k))};renderLessons()"><span><b>${escapeHtml(k)}</b></span><span>${by[k].n}</span><span>${lesDur(by[k].ms)}</span><span>${lesDur(by[k].ms / by[k].n)}</span><span class="${by[k].bad ? 'les-bad' : ''}">${by[k].bad || '—'}</span></button>`).join('') + '</div>' : '';
             const wrap = document.getElementById('les-items');
             if (!list.length) { wrap.innerHTML = '<div class="empty-state">Уроков за этот период нет.</div>'; return; }
-            wrap.innerHTML = '';
+            let html = '', day = '';
             list.forEach(l => {
-                const live = !l.endedAt;
-                const stale = live && Date.now() - (l.lastSeen || 0) > 15 * 60000;
-                const status = !live ? 'завершён' : (stale ? 'не закрыт учителем' : 'идёт сейчас');
-                const card = document.createElement('div');
-                card.className = 'admin-card';
+                const d = lesDate(l.startedAt);
+                if (d !== day) { day = d; html += `<div class="les-day">${escapeHtml(d)}</div>`; }
+                const live = !l.endedAt, stale = live && Date.now() - (l.lastSeen || 0) > 15 * 60000, dur = Math.max(0, lesEnd(l) - l.startedAt);
                 const n = Object.keys(l.participants || {}).filter(k => l.participants[k].role !== 'teacher').length;
-                card.innerHTML = `
-                    <h3>${escapeHtml(l.groupName || 'Без группы · комната ' + (l.room || ''))} <small>(${status})</small></h3>
-                    <div class="meta">Учитель: <strong>${escapeHtml(l.teacherName || '—')}</strong> · ${lesDate(l.startedAt)} · с <strong>${lesHM(l.startedAt)}</strong> до <strong>${lesHM(lesEnd(l))}</strong> · ${lesDur(lesEnd(l) - l.startedAt)}${live ? '' : ' · учеников: ' + n}</div>
-                    <div class="admin-card-actions"><button class="btn-small" onclick="toggleLessonDetails('${l.id}', this)">Кто сколько был</button></div>
-                    <div id="les-d-${l.id}" style="display:none; margin-top:.6rem;"></div>`;
-                wrap.appendChild(card);
+                const probs = lesProblems(l);
+                const chip = live && !stale ? '<span class="les-chip live">идёт сейчас</span>' : probs.length ? probs.map(p => `<span class="les-chip bad">${escapeHtml(p)}</span>`).join('') : '<span class="les-chip ok">завершён</span>';
+                html += `<div class="les-row">
+                    <div class="les-time"><b>${lesHM(l.startedAt)}</b><small>${lesHM(lesEnd(l))}</small></div>
+                    <div class="les-main"><b>${escapeHtml(l.groupName || 'Индивидуальный урок')}</b><small>${escapeHtml(l.teacherName || '—')}${live ? '' : ' · учеников: ' + n}</small>
+                        <div class="les-bar"><i style="width:${Math.min(100, Math.round(dur / (90 * 60000) * 100))}%"></i></div><div class="les-chips">${chip}</div></div>
+                    <div class="les-dur"><b>${lesDur(dur)}</b><button class="btn-small" onclick="toggleLessonDetails('${l.id}', this)">Кто сколько был</button></div>
+                    <div class="les-det" id="les-d-${l.id}" style="display:none"></div></div>`;
             });
+            wrap.innerHTML = html;
         }
         async function lessonAttendees(l) {
             let rows = [];
@@ -1650,9 +2335,9 @@
             box.style.display = 'block'; box.innerHTML = 'Загрузка…';
             const rows = await lessonAttendees(l);
             const dur = Math.max(1, lesEnd(l) - l.startedAt);
-            box.innerHTML = rows.length ? rows.map(r => `<div style="display:flex;justify-content:space-between;gap:1rem;padding:.35rem 0;border-bottom:1px dashed var(--rule);font-size:.9rem;">
-                <span>${escapeHtml(r.name || '—')}${r.role === 'teacher' ? ' <small>(учитель)</small>' : ''}${r.first ? ' <small style="color:var(--ink-soft)">вошёл в ' + lesHM(r.first) + '</small>' : ''}</span>
-                <strong>${lesDur(r.ms)} <small style="color:var(--ink-soft);font-weight:400">· ${Math.min(100, Math.round(r.ms / dur * 100))}% урока</small></strong></div>`).join('') : '<div class="empty-state">Данных о посещении нет.</div>';
+            box.innerHTML = rows.length ? rows.map(r => { const pct = Math.min(100, Math.round(r.ms / dur * 100)); return `<div class="les-att">
+                <span><b>${escapeHtml(r.name || '—')}</b>${r.role === 'teacher' ? ' <small>(учитель)</small>' : ''}${r.first ? ' <small>вошёл в ' + lesHM(r.first) + '</small>' : ''}</span>
+                <div class="les-bar ${pct < 60 ? 'low' : ''}"><i style="width:${pct}%"></i></div><strong>${lesDur(r.ms)} · ${pct}%</strong></div>`; }).join('') : '<div class="empty-state">Данных о посещении нет.</div>';
         }
         async function exportLessonsCsv() {
             const list = lesFiltered(); const rows = [['Дата', 'Группа', 'Учитель', 'Начало', 'Конец', 'Длительность, мин', 'Участник', 'Роль', 'Был на уроке, мин']];
@@ -1667,18 +2352,21 @@
         async function exportGroupCsv(id, what) {
             const g = allGroups.find(x => x.id === id); if (!g) return;
             try {
-                const snap = await db.collection(what === 'grades' ? 'grades' : 'attendance').where('groupId', '==', id).get();
+                let qq = db.collection(what === 'grades' ? 'grades' : 'attendance').where('groupId', '==', id);
+                if (scopeOn()) qq = qq.where('curatorUid', '==', window.ADM_SCOPE);
+                const snap = await qq.get();
                 const rows = []; snap.forEach(d => rows.push(d.data()));
                 if (what === 'grades') CsvExport.grades(g, rows); else CsvExport.attendance(g, rows);
             } catch (err) { alert('Ошибка: ' + err.message); }
         }
         async function deleteAdminGroup(id) {
             const g = allGroups.find(x => x.id === id); if (!g) return;
-            if (!confirm(`Удалить группу «${g.name}» вместе с оценками и посещаемостью? Это нельзя отменить. (Можно просто отправить в архив.)`)) return;
+            if (!await StarthUI.confirm(`Удалить группу «${g.name}» вместе с оценками и посещаемостью? Это нельзя отменить. (Можно просто отправить в архив.)`)) return;
             try {
+                const sc = (q) => (scopeOn() ? q.where('curatorUid', '==', window.ADM_SCOPE) : q);
                 const [as, gs] = await Promise.all([
-                    db.collection('attendance').where('groupId', '==', id).get(),
-                    db.collection('grades').where('groupId', '==', id).get()
+                    sc(db.collection('attendance').where('groupId', '==', id)).get(),
+                    sc(db.collection('grades').where('groupId', '==', id)).get()
                 ]);
                 const ops = [];
                 as.forEach(d => ops.push(b => b.delete(d.ref)));
@@ -1707,11 +2395,26 @@
         async function saveDesign() {
             const statusEl = document.getElementById('design-status');
             try {
+                // the default colour (or an empty field) is stored as «no override», so the dark theme keeps its bright gold
+                const hex = document.getElementById('design-color-hex').value.trim(), logo = document.getElementById('design-logo').value.trim();
+                const DEL = firebase.firestore.FieldValue.delete();
                 await db.collection('settings').doc('site').set({
-                    accent_color: document.getElementById('design-color-hex').value.trim(),
-                    logo_image_url: document.getElementById('design-logo').value.trim()
+                    accent_color: (!hex || hex.toLowerCase() === '#8f5a0c') ? DEL : hex,
+                    logo_image_url: logo || DEL
                 }, { merge: true });
                 statusEl.textContent = 'Сохранено. Изменения появятся при следующей загрузке сайта.'; statusEl.className = 'status-msg ok';
+            } catch (err) { statusEl.textContent = 'Ошибка: ' + err.message; statusEl.className = 'status-msg error'; }
+        }
+        // «Сбросить по умолчанию»: removes the custom colour and logo — both themes get their own colours back
+        async function resetDesign() {
+            const statusEl = document.getElementById('design-status');
+            if (window.StarthUI && !(await StarthUI.confirm('Вернуть стандартный цвет и логотип сайта?'))) return;
+            try {
+                const DEL = firebase.firestore.FieldValue.delete();
+                await db.collection('settings').doc('site').set({ accent_color: DEL, logo_image_url: DEL }, { merge: true });
+                document.getElementById('custom-accent') && document.getElementById('custom-accent').remove();
+                loadDesign();
+                statusEl.textContent = 'Оформление сброшено. Обновите страницу сайта.'; statusEl.className = 'status-msg ok';
             } catch (err) { statusEl.textContent = 'Ошибка: ' + err.message; statusEl.className = 'status-msg error'; }
         }
         async function saveAnnouncement() {
@@ -1726,9 +2429,12 @@
             } catch (err) { statusEl.textContent = 'Ошибка: ' + err.message; statusEl.className = 'status-msg error'; }
         }
     </script>
-    <script src="catalog-defaults.js"></script>
-    <script src="presence.js"></script>
-    <script src="admin-catalog.js"></script>
-    <script src="admin-mock.js"></script>
+    <script src="catalog-defaults.js?v=92"></script>
+    <script src="presence.js?v=92"></script>
+    <script src="admin-catalog.js?v=92"></script>
+    <script src="admin-promo.js?v=92"></script>
+    <script src="admin-partners.js?v=92"></script>
+    <script src="admin-attendance.js?v=92"></script>
+    <script src="admin-mock.js?v=92"></script>
 </body>
 </html>
